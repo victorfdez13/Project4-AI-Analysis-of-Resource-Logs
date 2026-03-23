@@ -1,0 +1,6 @@
+@Project4_AI_Analysis_of_Resource_Logs_HostAddress = http://localhost:5005
+
+GET {{Project4_AI_Analysis_of_Resource_Logs_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
