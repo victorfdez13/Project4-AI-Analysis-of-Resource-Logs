@@ -1,0 +1,54 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: project4-sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Your_strong_password123"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $$MSSQL_SA_PASSWORD -C -Q \"SELECT 1\" || exit 1"
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  mongo:
+    image: mongo:7.0
+    container_name: project4-mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: mongodb123
+      MONGO_INITDB_DATABASE: resource_logs
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./mongodb/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mongosh",
+          "--username",
+          "admin",
+          "--password",
+          "mongodb123",
+          "--authenticationDatabase",
+          "admin",
+          "--eval",
+          "db.adminCommand('ping')"
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+volumes:
+  sqlserver_data:
+  mongo_data:
