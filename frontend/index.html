@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Log Analysis Frontend</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-content">
+      <h1>AI Log Analysis Frontend</h1>
+      <p>Prototype frontend with React, Javascript and CSS</p>
+    </div>
+  </header>
+
+  <main class="dashboard">
+    <aside class="panel filters-panel">
+      <div class="panel-header">
+        <h2>Filters</h2>
+      </div>
+
+      <div class="panel-body">
+        <div class="form-group">
+          <label for="severity">Severity</label>
+          <select id="severity">
+            <option>All</option>
+            <option>Error</option>
+            <option>Warning</option>
+            <option>Info</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="resource">Resource/System</label>
+          <select id="resource">
+            <option>All Resources</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="keyword">Keyword</label>
+          <input id="keyword" type="text" placeholder="Search logs..." />
+        </div>
+
+        <button type="button" class="secondary-btn">Clear Filters</button>
+      </div>
+    </aside>
+
+    <section class="center-column">
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Logs</h2>
+        </div>
+
+        <div class="panel-body">
+          <div class="table-card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Resource</th>
+                  <th>Severity</th>
+                  <th>Message</th>
+                </tr>
+              </thead>
+              <tbody>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="table-pagination">
+            <button class="page-btn">&#8249;</button>
+            <span class="dot active"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Logs</h2>
+        </div>
+
+        <div class="panel-body">
+          <div class="table-card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Resource</th>
+                  <th>Severity</th>
+                  <th>Message</th>
+                </tr>
+              </thead>
+              <tbody>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div class="panel-header">
+        <h2>Analysis Result</h2>
+      </div>
+
+      <div class="panel-body">
+        <textarea rows="5" placeholder="Describe the issues found and potential causes..."></textarea>
+        <button class="primary-btn">Analyze Logs</button>
+      </div>
+
+      <div class="analysis-divider"></div>
+
+      <div class="panel-body result-content">
+        <div class="result-block">
+          <h3>Summary:</h3>
+          <p></p>
+        </div>
+
+        <div class="result-block">
+          <h3>Anomalies:</h3>
+          <ul></ul>
+        </div>
+
+        <div class="result-block">
+          <h3>Recommendation:</h3>
+          <p></p>
+        </div>
+
+        <div class="stats-inline">
+          <span>Logs: <strong></strong></span>
+          <span>Errors: <strong></strong></span>
+          <span>Warnings: <strong></strong></span>
+          <span>Info: <strong></strong></span>
+        </div>
+      </div>
+    </aside>
+  </main>
+</body>
+</html>
