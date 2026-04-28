@@ -100,7 +100,7 @@ WHERE (@Level IS NULL OR l.Level = @Level)
       @Search IS NULL
       OR l.Message LIKE '%' + @Search + '%'
       OR l.Category LIKE '%' + @Search + '%'
-      OR l.Level LIKE '%' + @Search + '%'
+      OR CONVERT(NVARCHAR(20), l.Level) LIKE '%' + @Search + '%'
       OR CONVERT(NVARCHAR(100), l.MainEntityId) LIKE '%' + @Search + '%'
       OR CONVERT(NVARCHAR(100), l.SessionId) LIKE '%' + @Search + '%'
   );
@@ -127,7 +127,7 @@ WHERE (@Level IS NULL OR l.Level = @Level)
       @Search IS NULL
       OR l.Message LIKE '%' + @Search + '%'
       OR l.Category LIKE '%' + @Search + '%'
-      OR l.Level LIKE '%' + @Search + '%'
+      OR CONVERT(NVARCHAR(20), l.Level) LIKE '%' + @Search + '%'
       OR CONVERT(NVARCHAR(100), l.MainEntityId) LIKE '%' + @Search + '%'
       OR CONVERT(NVARCHAR(100), l.SessionId) LIKE '%' + @Search + '%'
   )
