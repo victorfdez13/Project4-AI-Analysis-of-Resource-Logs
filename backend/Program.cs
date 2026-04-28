@@ -1,8 +1,42 @@
-using System.Collections.Concurrent;
+using Microsoft.Extensions.Options;
+using MongoDB.Driver;
+using Project4_AI_Analysis_of_Resource_Logs.Contracts;
+using Project4_AI_Analysis_of_Resource_Logs.Options;
+using Project4_AI_Analysis_of_Resource_Logs.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
 builder.Services.AddOpenApi();
+builder.Services.Configure<BackendOptions>(builder.Configuration);
+builder.Services.AddSingleton<SqlLogRepository>();
+builder.Services.AddSingleton<DatabaseHealthService>();
+builder.Services.AddSingleton<IMongoClient>(_ =>
+{
+    var connectionString = builder.Configuration.GetConnectionString("MongoDb")
+        ?? throw new InvalidOperationException("Missing MongoDB connection string.");
+
+    return new MongoClient(connectionString);
+});
+builder.Services.AddHttpClient<AiAnalysisClient>((serviceProvider, client) =>
+{
+    var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>().Value;
+
+    if (!Uri.TryCreate(options.AiService.BaseUrl, UriKind.Absolute, out var baseUri))
+    {
+        throw new InvalidOperationException("AiService:BaseUrl must be a valid absolute URL.");
+    }
+
+    client.BaseAddress = baseUri;
+});
 
 var app = builder.Build();
 
@@ -11,108 +45,117 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
+app.UseCors();
 
-var logs = new ConcurrentDictionary<int, ResourceLog>();
-var nextId = 2;
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
-logs[1] = new ResourceLog(1, "CPU", "Info", "CPU usage baseline registered.", "New", DateTimeOffset.UtcNow.AddMinutes(-20));
-logs[2] = new ResourceLog(2, "Memory", "Warning", "Memory threshold exceeded during sample run.", "Open", DateTimeOffset.UtcNow.AddMinutes(-5));
-
-app.MapGet("/health", () => Results.Ok(new
+app.MapGet("/health", (SqlLogRepository repository) => Results.Ok(new
 {
     status = "ok",
-    service = "backend"
+    service = "backend",
+    datasets = repository.GetConfiguredDatasets()
 }));
+
+app.MapGet("/health/database", async (DatabaseHealthService healthService, CancellationToken cancellationToken) =>
+{
+    var result = await healthService.CheckAsync(cancellationToken);
+
+    return result.IsHealthy
+        ? Results.Ok(result)
+        : Results.Json(result, statusCode: StatusCodes.Status503ServiceUnavailable);
+});
+
+app.MapGet("/health/ai", async (AiAnalysisClient aiClient, CancellationToken cancellationToken) =>
+{
+    var result = await aiClient.CheckHealthAsync(cancellationToken);
+
+    return result.IsHealthy
+        ? Results.Ok(result)
+        : Results.Json(result, statusCode: StatusCodes.Status503ServiceUnavailable);
+});
 
 var logRoutes = app.MapGroup("/api/logs");
 
-logRoutes.MapGet("/", () =>
+logRoutes.MapGet("/datasets", (SqlLogRepository repository) => Results.Ok(new
 {
-    var items = logs.Values
-        .OrderByDescending(log => log.CreatedAt)
-        .ToList();
+    datasets = repository.GetConfiguredDatasets()
+}));
 
-    return Results.Ok(items);
-});
-
-logRoutes.MapGet("/{id:int}", (int id) =>
+logRoutes.MapGet("/", async (
+    string? dataset,
+    string? level,
+    string? category,
+    string? search,
+    int skip,
+    int take,
+    SqlLogRepository repository,
+    CancellationToken cancellationToken) =>
 {
-    return logs.TryGetValue(id, out var log)
-        ? Results.Ok(log)
-        : Results.NotFound(new { message = $"Log with id {id} was not found." });
-});
-
-logRoutes.MapPost("/", (CreateResourceLogRequest request) =>
-{
-    if (string.IsNullOrWhiteSpace(request.ResourceName) ||
-        string.IsNullOrWhiteSpace(request.Level) ||
-        string.IsNullOrWhiteSpace(request.Message))
+    try
     {
-        return Results.BadRequest(new
+        var response = await repository.GetLogsAsync(dataset, level, category, search, skip, take, cancellationToken);
+        return Results.Ok(response);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { message = exception.Message });
+    }
+});
+
+logRoutes.MapGet("/{id:int}", async (
+    int id,
+    string? dataset,
+    SqlLogRepository repository,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var log = await repository.GetLogByIdAsync(dataset, id, cancellationToken);
+
+        return log is null
+            ? Results.NotFound(new { message = $"Log with id {id} was not found." })
+            : Results.Ok(log);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { message = exception.Message });
+    }
+});
+
+logRoutes.MapPost("/{id:int}/analyze", async (
+    int id,
+    string? dataset,
+    SqlLogRepository repository,
+    AiAnalysisClient aiClient,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var log = await repository.GetLogByIdAsync(dataset, id, cancellationToken);
+        if (log is null)
         {
-            message = "resourceName, level, and message are required."
-        });
+            return Results.NotFound(new { message = $"Log with id {id} was not found." });
+        }
+
+        var analysis = await aiClient.AnalyzeAsync(log, cancellationToken);
+        var response = new LogAnalysisResponse(log, analysis);
+
+        return Results.Ok(response);
     }
-
-    var id = Interlocked.Increment(ref nextId);
-    var log = new ResourceLog(
-        id,
-        request.ResourceName.Trim(),
-        request.Level.Trim(),
-        request.Message.Trim(),
-        "New",
-        DateTimeOffset.UtcNow);
-
-    logs[id] = log;
-
-    return Results.Created($"/api/logs/{id}", log);
-});
-
-logRoutes.MapPut("/{id:int}", (int id, UpdateResourceLogRequest request) =>
-{
-    if (!logs.TryGetValue(id, out var existing))
+    catch (ArgumentException exception)
     {
-        return Results.NotFound(new { message = $"Log with id {id} was not found." });
+        return Results.BadRequest(new { message = exception.Message });
     }
-
-    var updated = existing with
+    catch (HttpRequestException exception)
     {
-        ResourceName = string.IsNullOrWhiteSpace(request.ResourceName) ? existing.ResourceName : request.ResourceName.Trim(),
-        Level = string.IsNullOrWhiteSpace(request.Level) ? existing.Level : request.Level.Trim(),
-        Message = string.IsNullOrWhiteSpace(request.Message) ? existing.Message : request.Message.Trim(),
-        Status = string.IsNullOrWhiteSpace(request.Status) ? existing.Status : request.Status.Trim()
-    };
-
-    logs[id] = updated;
-
-    return Results.Ok(updated);
-});
-
-logRoutes.MapDelete("/{id:int}", (int id) =>
-{
-    return logs.TryRemove(id, out _)
-        ? Results.NoContent()
-        : Results.NotFound(new { message = $"Log with id {id} was not found." });
+        return Results.Problem(
+            title: "AI service unavailable",
+            detail: exception.Message,
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
 });
 
 app.Run();
-
-record ResourceLog(
-    int Id,
-    string ResourceName,
-    string Level,
-    string Message,
-    string Status,
-    DateTimeOffset CreatedAt);
-
-record CreateResourceLogRequest(
-    string ResourceName,
-    string Level,
-    string Message);
-
-record UpdateResourceLogRequest(
-    string? ResourceName,
-    string? Level,
-    string? Message,
-    string? Status);
