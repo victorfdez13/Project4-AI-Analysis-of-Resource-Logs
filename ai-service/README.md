@@ -2,7 +2,7 @@
 
 This is a simple Python microservice built with FastAPI for a university project.
 
-Its purpose is to provide a small and clear base for future AI-related features. Right now, it only returns mock responses and does not include real AI logic, database access, or authentication.
+Its purpose is to provide a small and clear base for future AI-related features. Right now, it returns mock AI responses and can fetch real logs from MongoDB. It does not include real AI logic or authentication.
 
 ## Requirements
 
@@ -18,7 +18,8 @@ pip install -r requirements.txt
 ## Run locally
 
 1. Create a `.env` file based on `.env.example`.
-2. Start the service:
+2. Make sure MongoDB is running with the imported resource log collections.
+3. Start the service:
 
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -78,8 +79,23 @@ Response:
 }
 ```
 
+### `GET /logs/{log_id}?dataset=DATASET1`
+
+Fetches one real log from MongoDB by `logId`.
+
+Supported datasets:
+
+- `DATASET1`
+- `DATASET2`
+
+Example:
+
+```bash
+curl "http://localhost:8000/logs/1?dataset=DATASET1"
+```
+
 ## Notes
 
 - This service is intentionally simple.
 - Real AI logic is not implemented yet.
-- It is designed to connect with the .NET backend later.
+- It reads logs from MongoDB only. It does not connect to SQL Server.
