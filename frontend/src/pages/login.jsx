@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import "./Login.css";
 
 export default function Login() {
+  const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -22,18 +24,18 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-
     if (!form.email || !form.password) {
       setError("Please fill in all fields.");
       return;
     }
-
     setLoading(true);
-
     await new Promise((r) => setTimeout(r, 1200));
-
     setLoading(false);
-    setError("Incorrect email or password.");
+    if (form.email === "admin@test.com" && form.password === "password123") {
+      navigate("/saved-logs");
+    } else {
+      setError("Incorrect email or password.");
+    }
   };
 
   return (

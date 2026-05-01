@@ -1,7 +1,17 @@
-import Login from "./components/Login";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import Login from "./pages/Login";
+import SavedLogs from "./pages/SavedLogs";
 
 function App() {
-  return <Login />;
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Navigate to="/login" />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/saved-logs" element={<SavedLogs />} />
+      </Routes>
+    </BrowserRouter>
+  );
 }
 
 export default App;
