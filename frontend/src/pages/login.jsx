@@ -32,7 +32,7 @@ export default function Login() {
     await new Promise((r) => setTimeout(r, 1200));
     setLoading(false);
     if (form.email === "admin@test.com" && form.password === "password123") {
-      navigate("/saved-logs");
+      navigate("/main");
     } else {
       setError("Incorrect email or password.");
     }
