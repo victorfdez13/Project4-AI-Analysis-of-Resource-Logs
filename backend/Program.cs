@@ -159,3 +159,4 @@ logRoutes.MapPost("/{id:int}/analyze", async (
 });
 
 app.Run();
+public partial class Program { }
