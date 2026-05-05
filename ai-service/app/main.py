@@ -5,6 +5,7 @@ from pymongo.errors import PyMongoError
 
 from app import log_repository, saved_log_repository
 from app.config import settings
+from app.log_repository import fetch_real_log
 from app.models import AnalyzeRequest, AnalyzeResponse
 from app.service import analyze_log, analyze_speedadmin_log
 

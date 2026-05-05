@@ -91,6 +91,21 @@ SpeedAdmin fields (`category`, `level`, `message`, `mainEntityId`,
   sessionId on login events, empty message, etc.)
 - `related_resources` — entity / session references useful for follow-up
 
+### `GET /logs/{log_id}?dataset=DATASET1`
+
+Fetches one real log from MongoDB by `logId`.
+
+Supported datasets:
+
+- `DATASET1`
+- `DATASET2`
+
+Example:
+
+```bash
+curl "http://localhost:8000/logs/1?dataset=DATASET1"
+```
+
 ## Notes
 
 - The service does **not** connect to SQL Server.
