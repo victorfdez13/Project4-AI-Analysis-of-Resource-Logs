@@ -161,6 +161,12 @@ Wait-ForContainerHealthy -ContainerName $mongoContainer
 Invoke-SqlScriptFolder -DatasetName "DATASET1" -FolderPath (Join-Path $extractRoot "DATASET1")
 Invoke-SqlScriptFolder -DatasetName "DATASET2" -FolderPath (Join-Path $extractRoot "DATASET2")
 
+$unifiedScript = Join-Path $databaseRoot "sqlserver\init\002_unified_views.sql"
+$containerUnifiedScript = "/tmp/002_unified_views.sql"
+Write-Host "Deploying unified views..."
+docker cp $unifiedScript "${sqlContainer}:${containerUnifiedScript}" | Out-Null
+docker exec $sqlContainer /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $SqlPassword -C -i $containerUnifiedScript
+
 $dataset1Json = Export-SqlLogsToJson -DatasetName "DATASET1"
 $dataset2Json = Export-SqlLogsToJson -DatasetName "DATASET2"
 
