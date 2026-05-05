@@ -1,14 +1,19 @@
-from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AnalyzeRequest(BaseModel):
+    """Payload sent by the .NET backend to /analyze.
+
+    Kept permissive so older callers don't break: only resource_id and
+    log_text are required, everything else is optional.
+    """
+
     resource_id: str
     log_text: str
-    timestamp: datetime
-    metadata: dict[str, Any]
+    timestamp: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = Field(default_factory=dict)
 
 
 class AnalyzeResponse(BaseModel):
