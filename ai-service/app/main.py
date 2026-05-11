@@ -1,6 +1,7 @@
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pymongo.errors import PyMongoError
 
 from app import log_repository, saved_log_repository
@@ -10,6 +11,14 @@ from app.service import analyze_log, analyze_speedadmin_log
 
 
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION)
+
+if settings.CORS_ALLOW_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.CORS_ALLOW_ORIGINS,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
 
 
 @app.get("/health")
