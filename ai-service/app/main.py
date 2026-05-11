@@ -6,7 +6,10 @@ from pymongo.errors import PyMongoError
 from app import log_repository, saved_log_repository
 from app.config import settings
 from app.models import AnalyzeRequest, AnalyzeResponse
-from app.service import analyze_log, analyze_speedadmin_log
+from app.service import (
+    analyze_speedadmin_log,
+    build_log_from_request,
+)
 
 
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION)
@@ -25,22 +28,52 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     persisted to savedlogs.saved_logs (best-effort: a Mongo failure here
     must not break the response to the backend).
     """
-    response = analyze_log(request)
-
     metadata = request.metadata or {}
     dataset = metadata.get("dataset") or metadata.get("datasetName")
     log_id = metadata.get("logId")
+    user_query = (
+        metadata.get("query")
+        or metadata.get("prompt")
+        or metadata.get("userPrompt")
+    )
+
+    anchor_log = build_log_from_request(request)
+    linked_logs: list[dict[str, Any]] = []
+
+    if dataset and log_id is not None and log_repository.is_valid_dataset(str(dataset)):
+        try:
+            dataset_upper = str(dataset).upper()
+            stored_log = log_repository.get_log(dataset_upper, int(log_id))
+            if stored_log is not None:
+                anchor_log = {
+                    **stored_log,
+                    **{
+                        key: value
+                        for key, value in anchor_log.items()
+                        if value not in (None, "", [], {})
+                    },
+                }
+                linked_logs = log_repository.get_related_logs(
+                    dataset_upper,
+                    anchor_log,
+                )
+        except (PyMongoError, ValueError):
+            linked_logs = []
+
+    response = AnalyzeResponse(
+        **analyze_speedadmin_log(
+            anchor_log,
+            linked_logs=linked_logs,
+            user_query=str(user_query).strip() if user_query else None,
+        )
+    )
 
     if dataset and log_id is not None:
         try:
             saved_log_repository.save_analysis(
                 dataset=str(dataset).upper(),
                 log_id=int(log_id),
-                original_log={
-                    "message": request.log_text,
-                    "timestamp": request.timestamp,
-                    "metadata": metadata,
-                },
+                original_log=anchor_log,
                 analysis=response.model_dump(),
             )
         except (PyMongoError, ValueError):
@@ -93,7 +126,12 @@ def analyze_real_log(
             detail=f"Log {log_id} not found in dataset {dataset}.",
         )
 
-    analysis = analyze_speedadmin_log(log)
+    try:
+        linked_logs = log_repository.get_related_logs(dataset_upper, log)
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail=f"MongoDB error: {exc}") from exc
+
+    analysis = analyze_speedadmin_log(log, linked_logs=linked_logs)
 
     try:
         saved = saved_log_repository.save_analysis(
