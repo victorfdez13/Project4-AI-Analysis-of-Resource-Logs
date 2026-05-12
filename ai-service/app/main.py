@@ -3,9 +3,10 @@ from typing import Any, Optional
 from fastapi import FastAPI, HTTPException, Query
 from pymongo.errors import PyMongoError
 
-from app import log_repository, saved_log_repository
+from app import chat_repository, llm, log_repository, saved_log_repository
 from app.config import settings
-from app.models import AnalyzeRequest, AnalyzeResponse
+from app.database import init_db
+from app.models import AnalyzeRequest, AnalyzeResponse, ChatRequest, ChatResponse
 from app.service import (
     analyze_speedadmin_log,
     build_log_from_request,
@@ -15,9 +16,45 @@ from app.service import (
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION)
 
 
+@app.on_event("startup")
+async def startup() -> None:
+    init_db()
+
+
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat(req: ChatRequest) -> ChatResponse:
+    """Accept a free-form prompt, maintain conversation history in SQLite, return LLM response."""
+    session_id = chat_repository.get_or_create_session(req.session_id)
+    history = chat_repository.get_history(session_id)
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a helpful assistant for a SpeedAdmin school-management system. "
+                "Answer concisely and clearly."
+            ),
+        },
+        *history,
+        {"role": "user", "content": req.prompt},
+    ]
+
+    response_text = llm.complete_messages(messages)
+
+    chat_repository.append_message(session_id, "user", req.prompt)
+    chat_repository.append_message(session_id, "assistant", response_text)
+
+    summary = (
+        llm.complete(f"Summarize in one sentence: {req.prompt} → {response_text}")
+        or response_text[:120]
+    )
+
+    return ChatResponse(session_id=session_id, response=response_text, summary=summary)
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)
