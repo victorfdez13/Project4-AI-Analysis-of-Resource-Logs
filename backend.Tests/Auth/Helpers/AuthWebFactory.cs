@@ -4,10 +4,6 @@ using Microsoft.Extensions.Configuration;
 
 namespace backend.Tests.Auth.Helpers;
 
-/// <summary>
-/// Shared factory for auth tests. Boots the backend in-memory with three test
-/// users covering all roles: admin, analyst, and viewer.
-/// </summary>
 public sealed class AuthWebFactory : WebApplicationFactory<Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -33,9 +29,6 @@ public sealed class AuthWebFactory : WebApplicationFactory<Program>
     }
 }
 
-/// <summary>
-/// API key constants and request builders shared across all auth test classes.
-/// </summary>
 public static class TestUsers
 {
     public const string AdminKey     = "test-key-admin";

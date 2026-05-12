@@ -3,15 +3,6 @@ using backend.Tests.Auth.Helpers;
 
 namespace backend.Tests.Auth;
 
-// Role/permission matrix:
-//   Policy          | admin | analyst | viewer
-//   ────────────────┼───────┼─────────┼───────
-//   ViewerAccess    |  ✓    |    ✓    |   ✓
-//   AnalystOrAdmin  |  ✓    |    ✓    |   ✗
-//
-// Unit tests: auth/403 decisions happen before any DB call.
-// Integration tests: auth passes and SQL Server is reached.
-
 public class RolePermissionTests : IClassFixture<AuthWebFactory>
 {
     private readonly HttpClient _client;
@@ -20,8 +11,6 @@ public class RolePermissionTests : IClassFixture<AuthWebFactory>
     {
         _client = factory.CreateClient();
     }
-
-    // ── Unit: ViewerAccess policy — no DB ────────────────────────────────────
 
     [Fact]
     public async Task Admin_HasViewerAccess_OnDatasetsEndpoint()
@@ -47,8 +36,6 @@ public class RolePermissionTests : IClassFixture<AuthWebFactory>
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    // ── Unit: viewer rejected by AnalystOrAdmin policy before DB ─────────────
-
     [Fact]
     public async Task Viewer_LacksAnalystOrAdminPolicy_Returns403()
     {
@@ -56,8 +43,6 @@ public class RolePermissionTests : IClassFixture<AuthWebFactory>
             TestUsers.Post("/api/logs/1/analyze?dataset=DATASET2", TestUsers.ViewerKey));
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
-
-    // ── Unit: dataset visibility from claims, no DB ───────────────────────────
 
     [Fact]
     public async Task Admin_CanSee_AllDatasets()
@@ -88,8 +73,6 @@ public class RolePermissionTests : IClassFixture<AuthWebFactory>
         Assert.DoesNotContain("DATASET1", body);
         Assert.Contains("DATASET2", body);
     }
-
-    // ── Integration: reach SQL Server — run with Docker ───────────────────────
 
     [Trait("Category", "Integration")]
     [Fact]

@@ -3,9 +3,6 @@ using backend.Tests.Auth.Helpers;
 
 namespace backend.Tests.Auth;
 
-// Unit tests: 401/403 resolved before any DB call.
-// Integration tests: auth passes and the repository is reached.
-
 public class ProtectedEndpointTests : IClassFixture<AuthWebFactory>
 {
     private readonly HttpClient _client;
@@ -15,8 +12,6 @@ public class ProtectedEndpointTests : IClassFixture<AuthWebFactory>
         _client = factory.CreateClient();
     }
 
-    // ── Unit: /health reads config only, never touches DB ────────────────────
-
     [Fact]
     public async Task HealthEndpoint_IsPublic_NoAuthNeeded()
     {
@@ -24,8 +19,6 @@ public class ProtectedEndpointTests : IClassFixture<AuthWebFactory>
         Assert.NotEqual(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.NotEqual(HttpStatusCode.Forbidden, response.StatusCode);
     }
-
-    // ── Unit: unauthenticated requests rejected before DB ────────────────────
 
     [Theory]
     [InlineData("/api/logs/datasets")]
@@ -43,8 +36,6 @@ public class ProtectedEndpointTests : IClassFixture<AuthWebFactory>
         var response = await _client.PostAsync("/api/logs/1/analyze?dataset=DATASET1", null);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
-
-    // ── Unit: cross-dataset access rejected before DB ─────────────────────────
 
     [Fact]
     public async Task Analyst_CannotRead_Dataset2_Returns403()
@@ -77,8 +68,6 @@ public class ProtectedEndpointTests : IClassFixture<AuthWebFactory>
             TestUsers.Post("/api/logs/1/analyze?dataset=DATASET2", TestUsers.ViewerKey));
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
-
-    // ── Integration: reach SQL Server — run with Docker ───────────────────────
 
     [Trait("Category", "Integration")]
     [Fact]
