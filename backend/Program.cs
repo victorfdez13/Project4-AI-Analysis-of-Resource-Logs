@@ -48,7 +48,17 @@ builder.Services.AddHttpClient<AiAnalysisClient>((serviceProvider, client) =>
 // API key authentication
 builder.Services.AddAuthentication("ApiKey")
     .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthHandler>("ApiKey", null);
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("AdminOnly", policy =>
+        policy.RequireRole("admin"));
+
+    options.AddPolicy("AnalystOrAdmin", policy =>
+        policy.RequireRole("admin", "analyst"));
+
+    options.AddPolicy("ViewerAccess", policy =>
+        policy.RequireRole("admin", "analyst", "viewer"));
+});
 
 var app = builder.Build();
 
@@ -103,7 +113,7 @@ logRoutes.MapGet("/datasets", (HttpContext context, SqlLogRepository repository)
     var visibleDatasets = allDatasets.Where(d => allowedDatasets.Contains(d)).ToList();
 
     return Results.Ok(new { datasets = visibleDatasets });
-});
+}).RequireAuthorization("ViewerAccess");
 
 logRoutes.MapGet("/", async (
     string? dataset,
@@ -128,7 +138,7 @@ logRoutes.MapGet("/", async (
     {
         return Results.BadRequest(new { message = exception.Message });
     }
-});
+}).RequireAuthorization("ViewerAccess");
 
 logRoutes.MapGet("/{id:int}", async (
     int id,
@@ -152,7 +162,7 @@ logRoutes.MapGet("/{id:int}", async (
     {
         return Results.BadRequest(new { message = exception.Message });
     }
-});
+}).RequireAuthorization("ViewerAccess");
 
 logRoutes.MapPost("/{id:int}/analyze", async (
     int id,
@@ -189,7 +199,8 @@ logRoutes.MapPost("/{id:int}/analyze", async (
             detail: exception.Message,
             statusCode: StatusCodes.Status503ServiceUnavailable);
     }
-});
+})
+.RequireAuthorization("AnalystOrAdmin");
 
 app.Run();
 
@@ -229,7 +240,13 @@ public class ApiKeyAuthHandler : AuthenticationHandler<AuthenticationSchemeOptio
         if (user is null)
             return Task.FromResult(AuthenticateResult.Fail("Invalid API key."));
 
-        var claims = new List<Claim> { new Claim(ClaimTypes.Name, user.ApiKey) };
+    var claims = new List<Claim>
+{
+    new Claim(ClaimTypes.Name, user.ApiKey),
+
+    // Claim of rol
+    new Claim(ClaimTypes.Role, user.Role)
+};
 
         // Add one claim per allowed dataset
         foreach (var dataset in user.AllowedDatasets)
@@ -246,5 +263,9 @@ public class ApiKeyAuthHandler : AuthenticationHandler<AuthenticationSchemeOptio
 public class UserConfig
 {
     public string ApiKey { get; set; } = string.Empty;
+
+    // Nuevo campo para el rol
+    public string Role { get; set; } = "viewer";
+
     public List<string> AllowedDatasets { get; set; } = new();
 }
