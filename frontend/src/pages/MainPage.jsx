@@ -473,18 +473,23 @@ export default function MainPage() {
               />
             </div>
 
-            <div className="rounded-lg border border-[#d9e1e7] bg-[#fbfcfd] px-4 py-3 text-sm text-[#1f2a37]/70">
-              {loadingPage ? (
-                <span>Connecting to backend...</span>
-              ) : (
-                <span>
-                  Dataset:{" "}
-                  <strong className="text-[#0e5a74]">
-                    {activeDataset || "-"}
-                  </strong>
-                  {datasets.length > 1 ? ` (${datasets.length} available)` : ""}
-                </span>
-              )}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wide text-[#0e5a74]">
+                Dataset
+              </label>
+              <select
+                value={activeDataset}
+                onChange={(e) => {
+                  setActiveDataset(e.target.value);
+                  setPageInfo((current) => ({ ...current, skip: 0 }));
+                }}
+                disabled={loadingPage || datasets.length === 0}
+                className="w-full rounded-lg border border-[#cfd8df] bg-white px-4 py-3 text-sm text-[#1f2a37] focus:border-[#0e5a74] focus:outline-none focus:ring-2 focus:ring-[#0e5a74]/10 disabled:opacity-50"
+              >
+                {datasets.map((ds) => (
+                  <option key={ds} value={ds}>{ds}</option>
+                ))}
+              </select>
             </div>
 
             <button

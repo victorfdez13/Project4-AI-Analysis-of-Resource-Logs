@@ -32,6 +32,12 @@ class Settings:
         "MONGO_SAVEDLOGS_COLLECTION", "saved_logs"
     )
 
+    SQLITE_DB_PATH: str = os.getenv("SQLITE_DB_PATH", "data/chat_history.db")
+
+    # Ollama — free local LLM (optional, no API key needed)
+    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.2")
+
     DATASET_COLLECTION_MAP: dict[str, str] = {
         "DATASET1": MONGO_DATASET1_COLLECTION,
         "DATASET2": MONGO_DATASET2_COLLECTION,

@@ -12,6 +12,7 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/main" element={<MainPage />} />
         <Route path="/saved-logs" element={<SavedLogs />} />
+        <Route path="/analysis" element={<Navigate to="/main" />} />
         <Route path="/settings" element={<Settings />} />
       </Routes>
     </BrowserRouter>
