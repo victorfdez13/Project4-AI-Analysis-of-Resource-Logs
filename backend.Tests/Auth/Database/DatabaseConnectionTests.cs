@@ -3,10 +3,6 @@ using backend.Tests.Auth.Helpers;
 
 namespace backend.Tests.Auth.Database;
 
-// All tests here are integration tests — they ping SQL Server and MongoDB.
-// Run with: dotnet test --filter "Category=Integration"
-// Requires Docker: cd database && docker-compose up
-
 public class DatabaseConnectionTests : IClassFixture<AuthWebFactory>
 {
     private readonly HttpClient _client;
@@ -15,8 +11,6 @@ public class DatabaseConnectionTests : IClassFixture<AuthWebFactory>
     {
         _client = factory.CreateClient();
     }
-
-    // ── Endpoint is public ────────────────────────────────────────────────────
 
     [Trait("Category", "Integration")]
     [Fact]
@@ -27,8 +21,6 @@ public class DatabaseConnectionTests : IClassFixture<AuthWebFactory>
         Assert.NotEqual(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
-    // ── With Docker running both databases must be reachable ──────────────────
-
     [Trait("Category", "Integration")]
     [Fact]
     public async Task DatabaseHealth_WhenDockerIsUp_Returns200()
@@ -36,8 +28,6 @@ public class DatabaseConnectionTests : IClassFixture<AuthWebFactory>
         var response = await _client.GetAsync("/health/database");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
-
-    // ── Response always contains structured JSON ──────────────────────────────
 
     [Trait("Category", "Integration")]
     [Fact]
@@ -73,8 +63,6 @@ public class DatabaseConnectionTests : IClassFixture<AuthWebFactory>
         var json = await response.Content.ReadAsStringAsync();
         Assert.Contains("mongoDb", json, StringComparison.OrdinalIgnoreCase);
     }
-
-    // ── Connection is stable across repeated calls ────────────────────────────
 
     [Trait("Category", "Integration")]
     [Fact]

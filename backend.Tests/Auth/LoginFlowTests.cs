@@ -3,9 +3,6 @@ using backend.Tests.Auth.Helpers;
 
 namespace backend.Tests.Auth;
 
-// Unit tests — no Docker needed.
-// /api/logs/datasets reads from config + claims, never touches the DB.
-
 public class LoginFlowTests : IClassFixture<AuthWebFactory>
 {
     private readonly HttpClient _client;
@@ -14,8 +11,6 @@ public class LoginFlowTests : IClassFixture<AuthWebFactory>
     {
         _client = factory.CreateClient();
     }
-
-    // ── Missing / invalid credentials → 401 ──────────────────────────────────
 
     [Fact]
     public async Task NoApiKey_Returns401()
@@ -31,8 +26,6 @@ public class LoginFlowTests : IClassFixture<AuthWebFactory>
             TestUsers.Get("/api/logs/datasets", "completely-invalid-key"));
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
-
-    // ── Successful authentication → 200 ──────────────────────────────────────
 
     [Fact]
     public async Task AdminApiKey_Returns200()
@@ -57,8 +50,6 @@ public class LoginFlowTests : IClassFixture<AuthWebFactory>
             TestUsers.Get("/api/logs/datasets", TestUsers.ViewerKey));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
-
-    // ── After auth, identity carries the correct dataset claims ───────────────
 
     [Fact]
     public async Task AdminLogin_IdentityContains_BothDatasets()

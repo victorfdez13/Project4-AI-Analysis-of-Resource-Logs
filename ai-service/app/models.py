@@ -21,3 +21,14 @@ class AnalyzeResponse(BaseModel):
     explanation: str
     anomalies: list[str]
     related_resources: list[str]
+
+
+class ChatRequest(BaseModel):
+    session_id: Optional[str] = None
+    prompt: str
+
+
+class ChatResponse(BaseModel):
+    session_id: str
+    response: str
+    summary: str

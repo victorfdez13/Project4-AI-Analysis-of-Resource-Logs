@@ -5,10 +5,12 @@ implementation builds a richer multi-log context when a dataset/logId pair
 is available.
 """
 
+import json
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
+from app import llm
 from app.models import AnalyzeRequest, AnalyzeResponse
 
 
@@ -428,6 +430,74 @@ def _build_related_resources(logs: list[dict[str, Any]]) -> list[str]:
     return _unique_preserving_order(related)[:_MAX_RELATED_RESOURCES]
 
 
+def _llm_describe(
+    anchor_log: dict[str, Any],
+    context: dict[str, Any],
+    anomalies: list[str],
+    user_query: str | None,
+) -> dict[str, str]:
+    """Ask the LLM for summary + explanation. Returns {} on failure."""
+    category = anchor_log.get("category") or "UnknownCategory"
+    level = _coerce_int(anchor_log.get("level"))
+    message = str(anchor_log.get("message") or "").strip()
+    timestamp = str(anchor_log.get("time") or "")
+
+    changes = anchor_log.get("changes") or []
+    changes_text = (
+        ", ".join(
+            str(c.get("propertyName", "")) for c in changes[:5] if isinstance(c, dict)
+        )
+        or "none"
+    )
+
+    entities = anchor_log.get("entities") or []
+    entity_types_text = (
+        ", ".join(
+            str(e.get("entityType", "")) for e in entities[:5] if isinstance(e, dict)
+        )
+        or "none"
+    )
+
+    top_categories = ", ".join(
+        name for name, _ in context["category_counts"].most_common(3)
+    ) or "none"
+    warning_count = context["warning_or_higher"]
+    anomaly_list = "; ".join(anomalies) if anomalies else "none"
+    span = context["span_minutes"]
+    n_logs = sum(context["category_counts"].values())
+
+    user_section = f"\n  User question: {user_query}" if user_query else ""
+
+    prompt = f"""You are analyzing a SpeedAdmin school-management log entry.
+
+Log:
+  Category: {category}
+  Level: {level}
+  Message: {message}
+  Time: {timestamp}
+  Changed fields: {changes_text}
+  Entity types: {entity_types_text}
+
+Context ({n_logs} related logs{f' over {span} minutes' if span else ''}):
+  Top categories: {top_categories}
+  Warnings/errors in context: {warning_count}
+  Detected anomalies: {anomaly_list}{user_section}
+
+Return JSON only, no markdown:
+{{"summary": "<one sentence>", "explanation": "<2-4 sentences>"}}"""
+
+    raw = llm.complete(prompt)
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            return parsed
+    except (json.JSONDecodeError, ValueError):
+        pass
+    return {}
+
+
 def analyze_speedadmin_log(
     log: dict[str, Any],
     linked_logs: list[dict[str, Any]] | None = None,
@@ -452,13 +522,17 @@ def analyze_speedadmin_log(
         + _detect_context_anomalies(context_logs, context)
     )
 
+    llm_out = _llm_describe(anchor_log, context, anomalies, user_query)
+    summary = llm_out.get("summary") or _build_summary(
+        anchor_log, linked_context, context, anomalies, user_query
+    )
+    explanation = llm_out.get("explanation") or _build_explanation(
+        anchor_log, linked_context, context, points_of_interest, user_query
+    )
+
     return {
-        "summary": _build_summary(
-            anchor_log, linked_context, context, anomalies, user_query
-        ),
-        "explanation": _build_explanation(
-            anchor_log, linked_context, context, points_of_interest, user_query
-        ),
+        "summary": summary,
+        "explanation": explanation,
         "anomalies": anomalies,
         "related_resources": _build_related_resources(context_logs),
     }

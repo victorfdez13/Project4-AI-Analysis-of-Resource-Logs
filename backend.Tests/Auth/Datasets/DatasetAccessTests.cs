@@ -3,9 +3,6 @@ using backend.Tests.Auth.Helpers;
 
 namespace backend.Tests.Auth.Datasets;
 
-// Unit tests: dataset listing and access control resolved from claims/config.
-// Integration tests: reach SQL Server for real data retrieval.
-
 public class DatasetAccessTests : IClassFixture<AuthWebFactory>
 {
     private readonly HttpClient _client;
@@ -14,8 +11,6 @@ public class DatasetAccessTests : IClassFixture<AuthWebFactory>
     {
         _client = factory.CreateClient();
     }
-
-    // ── Unit: dataset listing per role ────────────────────────────────────────
 
     [Fact]
     public async Task Admin_Datasets_ContainsBothDatasets()
@@ -53,8 +48,6 @@ public class DatasetAccessTests : IClassFixture<AuthWebFactory>
         Assert.Contains("DATASET2", body);
     }
 
-    // ── Unit: access control resolved before DB ───────────────────────────────
-
     [Fact]
     public async Task DatasetsEndpoint_WithoutAuth_Returns401()
     {
@@ -78,8 +71,6 @@ public class DatasetAccessTests : IClassFixture<AuthWebFactory>
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
-    // IsDatasetAllowed runs before the repository, so a dataset not in the user's
-    // AllowedDatasets claim returns 403 regardless of whether the name is valid.
     [Fact]
     public async Task Logs_DatasetNotInUserAllowedList_Returns403()
     {
@@ -97,8 +88,6 @@ public class DatasetAccessTests : IClassFixture<AuthWebFactory>
         Assert.Contains("datasets", body, StringComparison.OrdinalIgnoreCase);
     }
 
-    // The repository validates the dataset param before opening a DB connection,
-    // so a missing dataset param returns 400 without Docker.
     [Fact]
     public async Task Logs_NoDatasetParam_Returns400()
     {
@@ -106,8 +95,6 @@ public class DatasetAccessTests : IClassFixture<AuthWebFactory>
             TestUsers.Get("/api/logs/?skip=0&take=20", TestUsers.AdminKey));
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
-
-    // ── Integration: reach SQL Server — run with Docker ───────────────────────
 
     [Trait("Category", "Integration")]
     [Fact]

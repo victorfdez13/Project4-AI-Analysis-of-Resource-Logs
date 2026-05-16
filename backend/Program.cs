@@ -9,6 +9,10 @@ using System.Text.Encodings.Web;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var users = builder.Configuration
+    .GetSection("Users")
+    .Get<List<UserConfig>>() ?? new();
+    
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
@@ -102,6 +106,43 @@ app.MapGet("/health/ai", async (AiAnalysisClient aiClient, CancellationToken can
         : Results.Json(result, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
+
+// REGISTER
+app.MapPost("/register", (RegisterRequest request) =>
+{
+    // Verificar si ya existe
+    if (users.Any(u => u.Username == request.Username))
+    {
+        return Results.BadRequest(new
+        {
+            message = "Username already exists"
+        });
+    }
+
+    // Crear usuario
+    var user = new UserConfig
+    {
+        Username = request.Username,
+        Password = request.Password,
+
+        ApiKey = Guid.NewGuid().ToString(),
+
+        Role = "viewer",
+
+        AllowedDatasets = new List<string>
+        {
+            "DATASET1"
+        }
+    };
+
+    users.Add(user);
+
+    return Results.Ok(new
+    {
+        message = "Account created successfully",
+        apiKey = user.ApiKey
+    });
+});
 // All /api/logs routes require authentication
 var logRoutes = app.MapGroup("/api/logs").RequireAuthorization();
 
@@ -282,9 +323,12 @@ public class ApiKeyAuthHandler : AuthenticationHandler<AuthenticationSchemeOptio
 
 public class UserConfig
 {
+    public string Username { get; set; } = string.Empty;
+
+    public string Password { get; set; } = string.Empty;
+
     public string ApiKey { get; set; } = string.Empty;
 
-    // Nuevo campo para el rol
     public string Role { get; set; } = "viewer";
 
     public List<string> AllowedDatasets { get; set; } = new();
