@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Project4_AI_Analysis_of_Resource_Logs.Contracts;
@@ -60,3 +61,12 @@ public sealed record AiAnalyzeResponse(
     [property: JsonPropertyName("explanation")] string Explanation,
     [property: JsonPropertyName("anomalies")] IReadOnlyList<string> Anomalies,
     [property: JsonPropertyName("related_resources")] IReadOnlyList<string> RelatedResources);
+
+public sealed record SavedLogDocument(
+    [property: JsonPropertyName("_id")] string? Id,
+    [property: JsonPropertyName("dataset")] string Dataset,
+    [property: JsonPropertyName("logId")] int? LogId,
+    [property: JsonPropertyName("prompt")] string? Prompt,
+    [property: JsonPropertyName("analyzedAt")] string? AnalyzedAt,
+    [property: JsonPropertyName("originalLog")] JsonElement? OriginalLog,
+    [property: JsonPropertyName("analysis")] AiAnalyzeResponse? Analysis);

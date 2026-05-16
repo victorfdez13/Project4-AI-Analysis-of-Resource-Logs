@@ -158,5 +158,71 @@ logRoutes.MapPost("/{id:int}/analyze", async (
     }
 });
 
+var savedLogRoutes = app.MapGroup("/api/saved-logs");
+
+savedLogRoutes.MapGet("/", async (
+    string? dataset,
+    int? limit,
+    SqlLogRepository repository,
+    AiAnalysisClient aiClient,
+    CancellationToken cancellationToken) =>
+{
+    var resolvedDataset = string.IsNullOrWhiteSpace(dataset)
+        ? repository.GetConfiguredDatasets().FirstOrDefault()
+        : dataset;
+
+    if (string.IsNullOrWhiteSpace(resolvedDataset))
+    {
+        return Results.BadRequest(new { message = "No dataset configured." });
+    }
+
+    var resolvedLimit = Math.Clamp(limit ?? 50, 1, 500);
+
+    try
+    {
+        var items = await aiClient.ListSavedLogsAsync(resolvedDataset, resolvedLimit, cancellationToken);
+        return Results.Ok(items);
+    }
+    catch (HttpRequestException exception)
+    {
+        return Results.Problem(
+            title: "AI service unavailable",
+            detail: exception.Message,
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+});
+
+savedLogRoutes.MapGet("/{id:int}", async (
+    int id,
+    string? dataset,
+    SqlLogRepository repository,
+    AiAnalysisClient aiClient,
+    CancellationToken cancellationToken) =>
+{
+    var resolvedDataset = string.IsNullOrWhiteSpace(dataset)
+        ? repository.GetConfiguredDatasets().FirstOrDefault()
+        : dataset;
+
+    if (string.IsNullOrWhiteSpace(resolvedDataset))
+    {
+        return Results.BadRequest(new { message = "No dataset configured." });
+    }
+
+    try
+    {
+        var saved = await aiClient.GetSavedLogAsync(resolvedDataset, id, cancellationToken);
+        return saved is null
+            ? Results.NotFound(new { message = $"No saved analysis for log {id} in dataset {resolvedDataset}." })
+            : Results.Ok(saved);
+    }
+    catch (HttpRequestException exception)
+    {
+        return Results.Problem(
+            title: "AI service unavailable",
+            detail: exception.Message,
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+});
+
 app.Run();
 public partial class Program { }
