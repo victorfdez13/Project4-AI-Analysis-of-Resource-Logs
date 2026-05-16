@@ -1,13 +1,19 @@
 # AI Service
 
-This is a simple Python microservice built with FastAPI for a university project.
+Small Python microservice (FastAPI) for the SpeedAdmin log analysis project.
 
-Its purpose is to provide a small and clear base for future AI-related features. Right now, it only returns mock responses and does not include real AI logic, database access, or authentication.
+It reads real SpeedAdmin logs from MongoDB, runs a simple deterministic
+rule-based algorithm on them, and stores the results in a separate MongoDB
+database called `savedlogs`.
+
+There is no LLM call and no API key required.
 
 ## Requirements
 
 - Python 3.11 or compatible
 - pip
+- MongoDB running with the `resource_logs` database populated
+  (see `database/scripts/setup-datasets.ps1`)
 
 ## Install dependencies
 
@@ -17,7 +23,7 @@ pip install -r requirements.txt
 
 ## Run locally
 
-1. Create a `.env` file based on `.env.example`.
+1. Copy `.env.example` to `.env` and adjust `MONGO_URI` if needed.
 2. Start the service:
 
 ```bash
@@ -28,58 +34,65 @@ The service will be available at `http://localhost:8000`.
 
 ## Run with Docker
 
-Build the image:
-
 ```bash
 docker build -t ai-service .
-```
-
-Run the container:
-
-```bash
 docker run -p 8000:8000 --env-file .env ai-service
 ```
 
-## Available endpoints
+## Databases used
+
+| Purpose | Database       | Collection(s)                      |
+| ------- | -------------- | ---------------------------------- |
+| Input   | `resource_logs`| `dataset1_logs`, `dataset2_logs`   |
+| Output  | `savedlogs`    | `saved_logs`                       |
+
+The dataset query parameter accepts `DATASET1` or `DATASET2`.
+
+## Endpoints
 
 ### `GET /health`
 
-Response:
-
-```json
-{
-  "status": "ok"
-}
-```
+Returns `{"status": "ok"}`.
 
 ### `POST /analyze`
 
-Request:
+Backwards-compatible endpoint used by the .NET backend. Accepts the legacy
+payload shape; if `metadata.dataset` and `metadata.logId` are present, the
+result is also saved into `savedlogs.saved_logs`.
 
-```json
-{
-  "resource_id": "res-123",
-  "log_text": "Error connecting to database",
-  "timestamp": "2025-01-01T10:00:00",
-  "metadata": {
-    "source": "system"
-  }
-}
-```
+### `GET /logs/{log_id}?dataset=DATASET1`
 
-Response:
+Returns the real SpeedAdmin log from MongoDB.
 
-```json
-{
-  "summary": "Placeholder summary for provided log",
-  "explanation": "This is a mock explanation. AI logic not implemented yet.",
-  "anomalies": [],
-  "related_resources": []
-}
-```
+### `POST /logs/{log_id}/analyze?dataset=DATASET1`
+
+Looks up the real log, runs the rule-based algorithm, upserts the result into
+`savedlogs.saved_logs` keyed by `(dataset, logId)`, and returns the saved
+document.
+
+### `GET /saved-logs?dataset=DATASET1&limit=50`
+
+Lists saved analyses, newest first. `dataset` and `limit` are optional
+(default limit is 50, max 500).
+
+### `GET /saved-logs/{log_id}?dataset=DATASET1`
+
+Returns one saved analysis by `(dataset, logId)`.
+
+## Algorithm
+
+`app/service.py` runs a small deterministic algorithm against the real
+SpeedAdmin fields (`category`, `level`, `message`, `mainEntityId`,
+`impersonatorMainEntityId`, `sessionId`, `entities`, `changes`) and produces:
+
+- `summary` — short human-readable line
+- `explanation` — why/what happened, based on the fields
+- `anomalies` — simple flags (impersonation, unexpected level, missing
+  sessionId on login events, empty message, etc.)
+- `related_resources` — entity / session references useful for follow-up
 
 ## Notes
 
-- This service is intentionally simple.
-- Real AI logic is not implemented yet.
-- It is designed to connect with the .NET backend later.
+- The service does **not** connect to SQL Server.
+- No LLM is called; no API key is required.
+- The analysis is intentionally simple and easy to extend.
