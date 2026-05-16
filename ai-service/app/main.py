@@ -1,6 +1,7 @@
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pymongo.errors import PyMongoError
 
 from app import chat_repository, llm, log_repository, saved_log_repository
@@ -14,6 +15,14 @@ from app.service import (
 
 
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION)
+
+if settings.CORS_ALLOW_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.CORS_ALLOW_ORIGINS,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
 
 
 @app.on_event("startup")
@@ -72,6 +81,7 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
         metadata.get("query")
         or metadata.get("prompt")
         or metadata.get("userPrompt")
+        or request.prompt
     )
 
     anchor_log = build_log_from_request(request)
@@ -112,6 +122,7 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
                 log_id=int(log_id),
                 original_log=anchor_log,
                 analysis=response.model_dump(),
+                prompt=str(user_query).strip() if user_query else None,
             )
         except (PyMongoError, ValueError):
             pass
@@ -142,9 +153,16 @@ def get_log(log_id: int, dataset: str = Query(...)) -> dict[str, Any]:
 
 @app.post("/logs/{log_id}/analyze")
 def analyze_real_log(
-    log_id: int, dataset: str = Query(...)
+    log_id: int,
+    dataset: str = Query(...),
+    prompt: Optional[str] = Query(default=None),
 ) -> dict[str, Any]:
-    """Analyze a real SpeedAdmin log and persist the result."""
+    """Analyze a real SpeedAdmin log and persist the result.
+
+    The optional ``prompt`` query parameter is the user's query that
+    motivated the analysis. It is persisted alongside the result so the
+    saved analysis can be reused later (project proposal US5 / FR5).
+    """
     if not log_repository.is_valid_dataset(dataset):
         raise HTTPException(
             status_code=400, detail=f"Unknown dataset '{dataset}'."
@@ -168,7 +186,7 @@ def analyze_real_log(
     except PyMongoError as exc:
         raise HTTPException(status_code=503, detail=f"MongoDB error: {exc}") from exc
 
-    analysis = analyze_speedadmin_log(log, linked_logs=linked_logs)
+    analysis = analyze_speedadmin_log(log, linked_logs=linked_logs, user_query=prompt)
 
     try:
         saved = saved_log_repository.save_analysis(
@@ -176,6 +194,7 @@ def analyze_real_log(
             log_id=log_id,
             original_log=log,
             analysis=analysis,
+            prompt=prompt,
         )
     except PyMongoError as exc:
         raise HTTPException(status_code=503, detail=f"MongoDB error: {exc}") from exc
