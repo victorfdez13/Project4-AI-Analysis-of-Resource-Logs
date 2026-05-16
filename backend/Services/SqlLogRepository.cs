@@ -234,6 +234,95 @@ WHERE l.LogId = @LogId;
             entities);
     }
 
+    public async Task<DatasetSummaryResponse> GetDatasetSummaryAsync(
+        string? dataset,
+        CancellationToken cancellationToken)
+    {
+        var resolvedDataset = ResolveDataset(dataset);
+
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var overviewSql = $"""
+SELECT
+    COUNT_BIG(1) AS TotalCount,
+    COUNT(DISTINCT l.Category) AS DistinctCategoryCount,
+    SUM(CASE WHEN NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(100), l.SessionId))), '') IS NULL THEN 0 ELSE 1 END) AS SessionCount,
+    SUM(CASE WHEN NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(100), l.ImpersonatorMainEntityId))), '') IS NULL THEN 0 ELSE 1 END) AS ImpersonatedCount,
+    MIN(l.[Time]) AS EarliestTime,
+    MAX(l.[Time]) AS LatestTime
+FROM [{resolvedDataset}].[dbo].[Log] l;
+""";
+
+        int totalCount;
+        int distinctCategoryCount;
+        int sessionCount;
+        int impersonatedCount;
+        DateTimeOffset? earliestTime;
+        DateTimeOffset? latestTime;
+
+        await using (var overviewCommand = new SqlCommand(overviewSql, connection))
+        await using (var overviewReader = await overviewCommand.ExecuteReaderAsync(cancellationToken))
+        {
+            await overviewReader.ReadAsync(cancellationToken);
+
+            totalCount = ReadInt32(overviewReader, 0);
+            distinctCategoryCount = ReadInt32(overviewReader, 1);
+            sessionCount = ReadInt32(overviewReader, 2);
+            impersonatedCount = ReadInt32(overviewReader, 3);
+            earliestTime = ReadNullableTimestamp(overviewReader, 4);
+            latestTime = ReadNullableTimestamp(overviewReader, 5);
+        }
+
+        var topCategorySql = $"""
+SELECT TOP (1)
+    l.Category
+FROM [{resolvedDataset}].[dbo].[Log] l
+GROUP BY l.Category
+ORDER BY COUNT_BIG(1) DESC, l.Category ASC;
+""";
+
+        string? topCategory;
+        await using (var topCategoryCommand = new SqlCommand(topCategorySql, connection))
+        {
+            topCategory = Convert.ToString(
+                await topCategoryCommand.ExecuteScalarAsync(cancellationToken),
+                CultureInfo.InvariantCulture);
+        }
+
+        var levelsSql = $"""
+SELECT
+    CONVERT(NVARCHAR(20), l.Level) AS [Level],
+    COUNT_BIG(1) AS [Count]
+FROM [{resolvedDataset}].[dbo].[Log] l
+GROUP BY l.Level
+ORDER BY l.Level ASC;
+""";
+
+        var levels = new List<LogLevelCount>();
+        await using (var levelsCommand = new SqlCommand(levelsSql, connection))
+        await using (var levelsReader = await levelsCommand.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await levelsReader.ReadAsync(cancellationToken))
+            {
+                levels.Add(new LogLevelCount(
+                    ReadRequiredString(levelsReader, 0, "Level"),
+                    ReadInt32(levelsReader, 1)));
+            }
+        }
+
+        return new DatasetSummaryResponse(
+            resolvedDataset,
+            totalCount,
+            distinctCategoryCount,
+            topCategory,
+            sessionCount,
+            impersonatedCount,
+            earliestTime,
+            latestTime,
+            levels);
+    }
+
     private static void AddSharedParameters(SqlCommand command, string? level, string? category, string? search)
     {
         command.Parameters.AddWithValue("@Level", (object?)level ?? DBNull.Value);
@@ -363,6 +452,16 @@ ORDER BY le.LogEntityId;
         return Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture);
     }
 
+    private static int ReadInt32(SqlDataReader reader, int ordinal)
+    {
+        if (reader.IsDBNull(ordinal))
+        {
+            return 0;
+        }
+
+        return Convert.ToInt32(reader.GetValue(ordinal), CultureInfo.InvariantCulture);
+    }
+
     private static DateTimeOffset ReadTimestamp(SqlDataReader reader, int ordinal)
     {
         if (reader.IsDBNull(ordinal))
@@ -383,5 +482,15 @@ ORDER BY le.LogEntityId;
                 CultureInfo.InvariantCulture,
                 DateTimeStyles.AssumeUniversal)
         };
+    }
+
+    private static DateTimeOffset? ReadNullableTimestamp(SqlDataReader reader, int ordinal)
+    {
+        if (reader.IsDBNull(ordinal))
+        {
+            return null;
+        }
+
+        return ReadTimestamp(reader, ordinal);
     }
 }

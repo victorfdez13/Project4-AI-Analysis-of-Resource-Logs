@@ -419,3 +419,6 @@ FodyWeavers.xsd
 
 # Local dataset extraction and generated imports
 database/.cache/
+database/DATASET1/
+database/DATASET2/
+.run/

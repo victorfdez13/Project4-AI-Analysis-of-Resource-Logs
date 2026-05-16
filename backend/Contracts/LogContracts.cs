@@ -46,6 +46,21 @@ public sealed record LogListResponse(
     int TotalCount,
     IReadOnlyList<ResourceLogSummary> Items);
 
+public sealed record LogLevelCount(
+    string Level,
+    int Count);
+
+public sealed record DatasetSummaryResponse(
+    string Dataset,
+    int TotalCount,
+    int DistinctCategoryCount,
+    string? TopCategory,
+    int SessionCount,
+    int ImpersonatedCount,
+    DateTimeOffset? EarliestTime,
+    DateTimeOffset? LatestTime,
+    IReadOnlyList<LogLevelCount> Levels);
+
 public sealed record LogAnalysisResponse(
     ResourceLogDetail Log,
     AiAnalyzeResponse Analysis);

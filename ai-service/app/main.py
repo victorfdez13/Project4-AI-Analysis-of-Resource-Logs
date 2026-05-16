@@ -4,10 +4,14 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo.errors import PyMongoError
 
-from app import log_repository, saved_log_repository
+from app import chat_repository, llm, log_repository, saved_log_repository
 from app.config import settings
-from app.models import AnalyzeRequest, AnalyzeResponse
-from app.service import analyze_log, analyze_speedadmin_log
+from app.database import init_db
+from app.models import AnalyzeRequest, AnalyzeResponse, ChatRequest, ChatResponse
+from app.service import (
+    analyze_speedadmin_log,
+    build_log_from_request,
+)
 
 
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION)
@@ -21,9 +25,45 @@ if settings.CORS_ALLOW_ORIGINS:
     )
 
 
+@app.on_event("startup")
+async def startup() -> None:
+    init_db()
+
+
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat(req: ChatRequest) -> ChatResponse:
+    """Accept a free-form prompt, maintain conversation history in SQLite, return LLM response."""
+    session_id = chat_repository.get_or_create_session(req.session_id)
+    history = chat_repository.get_history(session_id)
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a helpful assistant for a SpeedAdmin school-management system. "
+                "Answer concisely and clearly."
+            ),
+        },
+        *history,
+        {"role": "user", "content": req.prompt},
+    ]
+
+    response_text = llm.complete_messages(messages)
+
+    chat_repository.append_message(session_id, "user", req.prompt)
+    chat_repository.append_message(session_id, "assistant", response_text)
+
+    summary = (
+        llm.complete(f"Summarize in one sentence: {req.prompt} → {response_text}")
+        or response_text[:120]
+    )
+
+    return ChatResponse(session_id=session_id, response=response_text, summary=summary)
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)
@@ -34,24 +74,55 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     persisted to savedlogs.saved_logs (best-effort: a Mongo failure here
     must not break the response to the backend).
     """
-    response = analyze_log(request)
-
     metadata = request.metadata or {}
     dataset = metadata.get("dataset") or metadata.get("datasetName")
     log_id = metadata.get("logId")
+    user_query = (
+        metadata.get("query")
+        or metadata.get("prompt")
+        or metadata.get("userPrompt")
+        or request.prompt
+    )
+
+    anchor_log = build_log_from_request(request)
+    linked_logs: list[dict[str, Any]] = []
+
+    if dataset and log_id is not None and log_repository.is_valid_dataset(str(dataset)):
+        try:
+            dataset_upper = str(dataset).upper()
+            stored_log = log_repository.get_log(dataset_upper, int(log_id))
+            if stored_log is not None:
+                anchor_log = {
+                    **stored_log,
+                    **{
+                        key: value
+                        for key, value in anchor_log.items()
+                        if value not in (None, "", [], {})
+                    },
+                }
+                linked_logs = log_repository.get_related_logs(
+                    dataset_upper,
+                    anchor_log,
+                )
+        except (PyMongoError, ValueError):
+            linked_logs = []
+
+    response = AnalyzeResponse(
+        **analyze_speedadmin_log(
+            anchor_log,
+            linked_logs=linked_logs,
+            user_query=str(user_query).strip() if user_query else None,
+        )
+    )
 
     if dataset and log_id is not None:
         try:
             saved_log_repository.save_analysis(
                 dataset=str(dataset).upper(),
                 log_id=int(log_id),
-                original_log={
-                    "message": request.log_text,
-                    "timestamp": request.timestamp,
-                    "metadata": metadata,
-                },
+                original_log=anchor_log,
                 analysis=response.model_dump(),
-                prompt=request.prompt,
+                prompt=str(user_query).strip() if user_query else None,
             )
         except (PyMongoError, ValueError):
             pass
@@ -110,7 +181,12 @@ def analyze_real_log(
             detail=f"Log {log_id} not found in dataset {dataset}.",
         )
 
-    analysis = analyze_speedadmin_log(log)
+    try:
+        linked_logs = log_repository.get_related_logs(dataset_upper, log)
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail=f"MongoDB error: {exc}") from exc
+
+    analysis = analyze_speedadmin_log(log, linked_logs=linked_logs, user_query=prompt)
 
     try:
         saved = saved_log_repository.save_analysis(
