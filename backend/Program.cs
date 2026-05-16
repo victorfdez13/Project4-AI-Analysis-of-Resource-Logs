@@ -164,6 +164,26 @@ logRoutes.MapGet("/{id:int}", async (
     }
 }).RequireAuthorization("ViewerAccess");
 
+logRoutes.MapGet("/summary", async (
+    string? dataset,
+    HttpContext context,
+    SqlLogRepository repository,
+    CancellationToken cancellationToken) =>
+{
+    if (!IsDatasetAllowed(context, dataset))
+        return Results.Forbid();
+
+    try
+    {
+        var summary = await repository.GetDatasetSummaryAsync(dataset, cancellationToken);
+        return Results.Ok(summary);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { message = exception.Message });
+    }
+}).RequireAuthorization("ViewerAccess");
+
 logRoutes.MapPost("/{id:int}/analyze", async (
     int id,
     string? dataset,

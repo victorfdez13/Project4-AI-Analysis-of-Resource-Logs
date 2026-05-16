@@ -4,16 +4,17 @@ import { useNavigate } from "react-router-dom";
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL?.trim() || "http://localhost:5005"
 ).replace(/\/+$/, "");
+const API_KEY = import.meta.env.VITE_API_KEY?.trim() || "key-admin-full";
 const PAGE_SIZE = 20;
 
 const severityOptions = [
   { label: "All", value: "" },
-  { label: "Critical", value: "5" },
-  { label: "Error", value: "4" },
-  { label: "Warning", value: "3" },
-  { label: "Information", value: "2" },
-  { label: "Debug", value: "1" },
-  { label: "Trace", value: "0" },
+  { label: "Critical (5)", value: "5" },
+  { label: "Error (4)", value: "4" },
+  { label: "Warning (3)", value: "3" },
+  { label: "Information (2)", value: "2" },
+  { label: "Debug (1)", value: "1" },
+  { label: "Trace (0)", value: "0" },
 ];
 
 const levelLabels = {
@@ -51,12 +52,18 @@ function tryParseJson(text) {
 }
 
 async function requestJson(path, query = {}, options = {}) {
+  const headers = {
+    Accept: "application/json",
+    ...options.headers,
+  };
+
+  if (API_KEY && !headers["X-Api-Key"]) {
+    headers["X-Api-Key"] = API_KEY;
+  }
+
   const response = await fetch(buildUrl(path, query), {
-    headers: {
-      Accept: "application/json",
-      ...options.headers,
-    },
     ...options,
+    headers,
   });
 
   const responseText = await response.text();
@@ -92,6 +99,15 @@ function formatDateTime(value) {
 
 function getLevelLabel(level) {
   return levelLabels[Number(level)] || `Level ${level}`;
+}
+
+function getLevelDisplay(level) {
+  const normalizedLevel = String(level ?? "").trim();
+  if (!normalizedLevel) {
+    return "-";
+  }
+
+  return `${getLevelLabel(normalizedLevel)} (${normalizedLevel})`;
 }
 
 function getSeverityBadgeClass(level) {
@@ -385,7 +401,7 @@ export default function MainPage() {
           <div className="flex flex-col gap-4 px-6 py-5">
             <div>
               <label className="mb-2 block text-sm font-bold text-[#0e5a74]">
-                Severity
+                Severity / Level
               </label>
               <div className="relative">
                 <select
@@ -553,7 +569,7 @@ export default function MainPage() {
                           <span
                             className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getSeverityBadgeClass(log.level)}`}
                           >
-                            {getLevelLabel(log.level)}
+                            {getLevelDisplay(log.level)}
                           </span>
                         </td>
                         <td className="px-5 py-4 text-sm text-[#1f2a37]/75">
@@ -630,7 +646,7 @@ export default function MainPage() {
                 <table className="w-full border-collapse">
                   <thead>
                     <tr className="bg-[#eef3f6]">
-                      {["Dataset", "Main Entity", "Session", "Changes"].map((header) => (
+                      {["Dataset", "Severity", "Main Entity", "Session", "Changes"].map((header) => (
                         <th
                           key={header}
                           className="px-5 py-3 text-left text-sm font-semibold text-[#0e5a74]"
@@ -647,6 +663,9 @@ export default function MainPage() {
                           {selectedLog.dataset || activeDataset}
                         </td>
                         <td className="px-5 py-4 text-sm text-[#1f2a37]/75">
+                          {getLevelDisplay(selectedLog.level)}
+                        </td>
+                        <td className="px-5 py-4 text-sm text-[#1f2a37]/75">
                           {selectedLog.mainEntityId || "-"}
                         </td>
                         <td className="px-5 py-4 text-sm text-[#1f2a37]/75">
@@ -658,7 +677,7 @@ export default function MainPage() {
                       </tr>
                     ) : (
                       <tr>
-                        <td colSpan={4} className="px-5 py-6 text-center text-sm text-[#1f2a37]/40">
+                        <td colSpan={5} className="px-5 py-6 text-center text-sm text-[#1f2a37]/40">
                           Select a log above to view details.
                         </td>
                       </tr>
@@ -743,13 +762,13 @@ export default function MainPage() {
                 Logs: <strong className="text-[#0e5a74]">{pageInfo.totalCount}</strong>
               </span>
               <span className="text-[#1f2a37]">
-                Errors: <strong className="text-[#0e5a74]">{errorCount}</strong>
+                Errors (4-5): <strong className="text-[#0e5a74]">{errorCount}</strong>
               </span>
               <span className="text-[#1f2a37]">
-                Warnings: <strong className="text-[#0e5a74]">{warningCount}</strong>
+                Warnings (3): <strong className="text-[#0e5a74]">{warningCount}</strong>
               </span>
               <span className="text-[#1f2a37]">
-                Info: <strong className="text-[#0e5a74]">{infoCount}</strong>
+                Information (2): <strong className="text-[#0e5a74]">{infoCount}</strong>
               </span>
             </div>
           </div>

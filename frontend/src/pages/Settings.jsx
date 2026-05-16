@@ -4,9 +4,28 @@ import { useNavigate } from "react-router-dom";
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL?.trim() || "http://localhost:5005"
 ).replace(/\/+$/, "");
+const API_KEY = import.meta.env.VITE_API_KEY?.trim() || "key-admin-full";
 
-function buildUrl(path) {
-  return `${API_BASE_URL}${path}`;
+const levelLabels = {
+  0: "Trace",
+  1: "Debug",
+  2: "Information",
+  3: "Warning",
+  4: "Error",
+  5: "Critical",
+};
+
+function buildUrl(path, query = {}) {
+  const params = new URLSearchParams();
+
+  Object.entries(query).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      params.set(key, String(value));
+    }
+  });
+
+  const queryString = params.toString();
+  return `${API_BASE_URL}${path}${queryString ? `?${queryString}` : ""}`;
 }
 
 function tryParseJson(text) {
@@ -21,13 +40,19 @@ function tryParseJson(text) {
   }
 }
 
-async function requestJson(path, options = {}) {
-  const response = await fetch(buildUrl(path), {
-    headers: {
-      Accept: "application/json",
-      ...options.headers,
-    },
+async function requestJson(path, query = {}, options = {}) {
+  const headers = {
+    Accept: "application/json",
+    ...options.headers,
+  };
+
+  if (API_KEY && !headers["X-Api-Key"]) {
+    headers["X-Api-Key"] = API_KEY;
+  }
+
+  const response = await fetch(buildUrl(path, query), {
     ...options,
+    headers,
   });
 
   const responseText = await response.text();
@@ -46,13 +71,36 @@ async function requestJson(path, options = {}) {
   return payload;
 }
 
+function formatLevelDisplay(level) {
+  const normalizedLevel = String(level ?? "").trim();
+  if (!normalizedLevel) {
+    return "-";
+  }
+
+  const label = levelLabels[Number(normalizedLevel)] || `Level ${normalizedLevel}`;
+  return `${label} (${normalizedLevel})`;
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return "-";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(value));
+}
+
 function StatusBadge({ healthy, label }) {
   return (
     <span
       className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-        healthy
-          ? "bg-teal-100 text-[#0e5a74]"
-          : "bg-red-100 text-red-600"
+        healthy ? "bg-teal-100 text-[#0e5a74]" : "bg-red-100 text-red-600"
       }`}
     >
       {label}
@@ -71,6 +119,18 @@ function SectionCard({ title, children }) {
   );
 }
 
+function MetricTile({ label, value, hint }) {
+  return (
+    <div className="rounded-xl border border-[#d9e1e7] bg-[#fbfcfd] px-4 py-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#0e5a74]/60">
+        {label}
+      </p>
+      <p className="mt-2 text-lg font-semibold text-[#1f2a37]">{value}</p>
+      {hint ? <p className="mt-1 text-sm text-[#1f2a37]/60">{hint}</p> : null}
+    </div>
+  );
+}
+
 export default function Settings() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -78,6 +138,7 @@ export default function Settings() {
   const [appHealth, setAppHealth] = useState(null);
   const [databaseHealth, setDatabaseHealth] = useState(null);
   const [aiHealth, setAiHealth] = useState(null);
+  const [datasetSummaries, setDatasetSummaries] = useState([]);
 
   const navItems = [
     { label: "Dashboard", path: "/main" },
@@ -94,11 +155,28 @@ export default function Settings() {
         setLoading(true);
         setError("");
 
-        const [appResponse, databaseResponse, aiResponse] = await Promise.all([
-          requestJson("/health", { signal: controller.signal }),
-          requestJson("/health/database", { signal: controller.signal }),
-          requestJson("/health/ai", { signal: controller.signal }),
-        ]);
+        const [appResponse, databaseResponse, aiResponse, datasetResponse] =
+          await Promise.all([
+            requestJson("/health", {}, { signal: controller.signal }),
+            requestJson("/health/database", {}, { signal: controller.signal }),
+            requestJson("/health/ai", {}, { signal: controller.signal }),
+            requestJson("/api/logs/datasets", {}, { signal: controller.signal }),
+          ]);
+
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        const nextDatasets = datasetResponse?.datasets || [];
+        const summaryResponses = await Promise.all(
+          nextDatasets.map((dataset) =>
+            requestJson(
+              "/api/logs/summary",
+              { dataset },
+              { signal: controller.signal }
+            )
+          )
+        );
 
         if (controller.signal.aborted) {
           return;
@@ -107,6 +185,7 @@ export default function Settings() {
         setAppHealth(appResponse);
         setDatabaseHealth(databaseResponse);
         setAiHealth(aiResponse);
+        setDatasetSummaries(summaryResponses);
       } catch (nextError) {
         if (!controller.signal.aborted) {
           setError(nextError.message || "Unable to load settings.");
@@ -123,10 +202,18 @@ export default function Settings() {
     return () => controller.abort();
   }, []);
 
-  const sqlDatasets = databaseHealth?.sqlServer?.datasets || [];
-  const expectedCollections = databaseHealth?.mongoDb?.expectedCollections || [];
-  const availableCollections = databaseHealth?.mongoDb?.availableCollections || [];
-  const missingCollections = databaseHealth?.mongoDb?.missingCollections || [];
+  const datasetHealth = databaseHealth?.sqlServer?.datasets || [];
+  const totalLogs = datasetSummaries.reduce(
+    (sum, summary) => sum + (summary.totalCount || 0),
+    0
+  );
+  const observedLevels = [...new Set(
+    datasetSummaries.flatMap((summary) =>
+      (summary.levels || []).map((level) => String(level.level))
+    )
+  )]
+    .sort((left, right) => Number(left) - Number(right))
+    .map(formatLevelDisplay);
 
   return (
     <div className="min-h-screen bg-[#f4f6f8] font-sans text-[#1f2a37]">
@@ -162,188 +249,184 @@ export default function Settings() {
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-8">
         <section className="rounded-[18px] border border-[#d9e1e7] bg-white px-6 py-6 shadow-[0_4px_14px_rgba(14,90,116,0.08)]">
           <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[#0e5a74]/60">
-            System Settings
+            Settings
           </p>
           <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
               <h1 className="text-3xl font-semibold text-[#0e5a74]">Settings</h1>
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[#1f2a37]/65">
-                A minimal overview of system access, service status, and dataset
-                configuration for the current log analysis environment.
+                Use this page to see platform status, available data sources,
+                and a quick summary of the activity currently available for
+                review.
               </p>
             </div>
             <div className="rounded-xl border border-[#d9e1e7] bg-[#fbfcfd] px-4 py-3 text-sm text-[#1f2a37]/65">
-              Backend endpoint:{" "}
-              <span className="font-semibold text-[#0e5a74]">{API_BASE_URL}</span>
+              Connected services:{" "}
+              <span className="font-semibold text-[#0e5a74]">
+                {loading ? "Checking..." : "Active"}
+              </span>
             </div>
           </div>
         </section>
 
-        {error && (
+        {error ? (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
             {error}
           </div>
-        )}
+        ) : null}
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-          <SectionCard title="Account & Access">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-xl border border-[#d9e1e7] bg-[#fbfcfd] px-4 py-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#0e5a74]/60">
-                  Role
-                </p>
-                <p className="mt-2 text-lg font-semibold text-[#1f2a37]">
-                  Support / Demo User
-                </p>
-                <p className="mt-1 text-sm text-[#1f2a37]/60">
-                  Current frontend flow is read-only and focused on log access and analysis.
-                </p>
-              </div>
-              <div className="rounded-xl border border-[#d9e1e7] bg-[#fbfcfd] px-4 py-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#0e5a74]/60">
-                  Available datasets
-                </p>
-                <p className="mt-2 text-lg font-semibold text-[#1f2a37]">
-                  {appHealth?.datasets?.length || 0}
-                </p>
-                <p className="mt-1 text-sm text-[#1f2a37]/60">
-                  {(appHealth?.datasets || []).join(", ") || "No datasets reported yet."}
-                </p>
-              </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Service Status">
+          <SectionCard title="Platform Status">
             <div className="grid gap-4 md:grid-cols-3">
               <div className="rounded-xl border border-[#d9e1e7] bg-[#fbfcfd] px-4 py-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-[#0e5a74]">Backend</p>
+                  <p className="text-sm font-semibold text-[#0e5a74]">Application</p>
                   <StatusBadge
                     healthy={appHealth?.status === "ok"}
-                    label={appHealth?.status === "ok" ? "Healthy" : "Unknown"}
+                    label={appHealth?.status === "ok" ? "Healthy" : "Attention"}
                   />
                 </div>
                 <p className="mt-3 text-sm text-[#1f2a37]/60">
-                  Core API availability and route access.
+                  Core service used to load and manage activity records.
                 </p>
               </div>
               <div className="rounded-xl border border-[#d9e1e7] bg-[#fbfcfd] px-4 py-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-[#0e5a74]">Database</p>
+                  <p className="text-sm font-semibold text-[#0e5a74]">Data Store</p>
                   <StatusBadge
                     healthy={databaseHealth?.isHealthy}
                     label={databaseHealth?.isHealthy ? "Healthy" : "Attention"}
                   />
                 </div>
                 <p className="mt-3 text-sm text-[#1f2a37]/60">
-                  SQL Server and MongoDB availability for dataset access.
+                  Storage services holding the imported activity records.
                 </p>
               </div>
               <div className="rounded-xl border border-[#d9e1e7] bg-[#fbfcfd] px-4 py-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-[#0e5a74]">AI Service</p>
+                  <p className="text-sm font-semibold text-[#0e5a74]">Analysis Service</p>
                   <StatusBadge
                     healthy={aiHealth?.isHealthy}
                     label={aiHealth?.isHealthy ? "Healthy" : "Attention"}
                   />
                 </div>
                 <p className="mt-3 text-sm text-[#1f2a37]/60">
-                  Rule-based analysis pipeline and model integration endpoint.
+                  Supports log summaries, explanations, and anomaly checks.
                 </p>
               </div>
             </div>
           </SectionCard>
-        </div>
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_1fr]">
-          <SectionCard title="Data Sources">
-            <div className="space-y-4">
-              <div className="rounded-xl border border-[#d9e1e7] bg-[#fbfcfd] px-4 py-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-[#0e5a74]">SQL datasets</p>
-                  <span className="text-sm font-semibold text-[#1f2a37]/65">
-                    {sqlDatasets.length} configured
-                  </span>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {sqlDatasets.length > 0 ? (
-                    sqlDatasets.map((dataset) => (
-                      <span
-                        key={dataset.dataset}
-                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                          dataset.isAvailable
-                            ? "bg-teal-100 text-[#0e5a74]"
-                            : "bg-red-100 text-red-600"
-                        }`}
-                      >
-                        {dataset.dataset}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-sm text-[#1f2a37]/50">
-                      {loading ? "Loading datasets..." : "No dataset details available."}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-[#d9e1e7] bg-[#fbfcfd] px-4 py-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-[#0e5a74]">Mongo collections</p>
-                  <span className="text-sm font-semibold text-[#1f2a37]/65">
-                    {availableCollections.length} available
-                  </span>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {expectedCollections.length > 0 ? (
-                    expectedCollections.map((collectionName) => {
-                      const isAvailable = availableCollections.some(
-                        (availableCollection) =>
-                          availableCollection.toLowerCase() === collectionName.toLowerCase()
-                      );
-
-                      return (
-                        <span
-                          key={collectionName}
-                          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                            isAvailable
-                              ? "bg-teal-100 text-[#0e5a74]"
-                              : "bg-red-100 text-red-600"
-                          }`}
-                        >
-                          {collectionName}
-                        </span>
-                      );
-                    })
-                  ) : (
-                    <span className="text-sm text-[#1f2a37]/50">
-                      {loading ? "Loading collections..." : "No Mongo collection details available."}
-                    </span>
-                  )}
-                </div>
-                {missingCollections.length > 0 && (
-                  <p className="mt-3 text-sm text-red-600">
-                    Missing collections: {missingCollections.join(", ")}
-                  </p>
-                )}
-              </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard title="AI & Environment">
-            <div className="rounded-xl border border-[#d9e1e7] bg-[#fbfcfd] px-4 py-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#0e5a74]/60">
-                AI service base URL
-              </p>
-              <p className="mt-2 text-lg font-semibold text-[#1f2a37]">
-                {aiHealth?.baseUrl || "Not available"}
-              </p>
-              <p className="mt-1 text-sm text-[#1f2a37]/60">
-                The backend calls the AI pipeline through a stable service interface.
-              </p>
+          <SectionCard title="Activity Snapshot">
+            <div className="grid gap-4 md:grid-cols-2">
+              <MetricTile
+                label="Available Data Sources"
+                value={loading ? "Loading..." : datasetSummaries.length}
+                hint="Data sources currently available in this workspace."
+              />
+              <MetricTile
+                label="Total Records"
+                value={loading ? "Loading..." : totalLogs}
+                hint="Combined number of activity records across all sources."
+              />
+              <MetricTile
+                label="Activity Levels"
+                value={loading ? "Loading..." : observedLevels.join(", ") || "-"}
+                hint="Current level values used across the loaded activity records."
+              />
+              <MetricTile
+                label="Analysis Status"
+                value={loading ? "Loading..." : aiHealth?.status || "-"}
+                hint="Shows whether the analysis service is ready to use."
+              />
             </div>
           </SectionCard>
         </div>
+
+        <SectionCard title="Data Source Overview">
+          {loading ? (
+            <p className="text-sm text-[#1f2a37]/50">Loading data source overview...</p>
+          ) : datasetSummaries.length === 0 ? (
+            <p className="text-sm text-[#1f2a37]/50">
+              No data source overview is available right now.
+            </p>
+          ) : (
+            <div className="grid gap-5 lg:grid-cols-2">
+              {datasetSummaries.map((summary) => {
+                const health = datasetHealth.find(
+                  (item) => item.dataset === summary.dataset
+                );
+                const levelSummary = (summary.levels || [])
+                  .map((level) => `${formatLevelDisplay(level.level)} x${level.count}`)
+                  .join(", ");
+
+                return (
+                  <div
+                    key={summary.dataset}
+                    className="rounded-[18px] border border-[#d9e1e7] bg-[#fbfcfd] p-5"
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#0e5a74]/60">
+                          Data Source
+                        </p>
+                        <h3 className="mt-1 text-xl font-semibold text-[#0e5a74]">
+                          {summary.dataset}
+                        </h3>
+                      </div>
+                      <StatusBadge
+                        healthy={health?.isAvailable}
+                        label={health?.isAvailable ? "Available" : "Missing"}
+                      />
+                    </div>
+
+                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                      <MetricTile
+                        label="Records"
+                        value={summary.totalCount}
+                        hint={
+                          summary.latestTime
+                            ? `Latest activity: ${formatDateTime(summary.latestTime)}`
+                            : "No timestamps reported."
+                        }
+                      />
+                      <MetricTile
+                        label="Business Areas"
+                        value={summary.distinctCategoryCount}
+                        hint={summary.topCategory ? `Most active area: ${summary.topCategory}` : "No category data."}
+                      />
+                      <MetricTile
+                        label="Session Activity"
+                        value={summary.sessionCount}
+                        hint="Records linked to a user session."
+                      />
+                      <MetricTile
+                        label="Delegated Access"
+                        value={summary.impersonatedCount}
+                        hint="Records involving represented or delegated access."
+                      />
+                    </div>
+
+                    <div className="mt-4 rounded-xl border border-[#d9e1e7] bg-white px-4 py-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#0e5a74]/60">
+                        Activity Levels
+                      </p>
+                      <p className="mt-2 text-sm leading-relaxed text-[#1f2a37]/70">
+                        {levelSummary || "No levels reported."}
+                      </p>
+                      {summary.levels?.length === 1 ? (
+                        <p className="mt-2 text-sm text-[#1f2a37]/55">
+                          This source currently uses one level only, so level
+                          filtering will be limited in practice.
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </SectionCard>
       </main>
     </div>
   );
