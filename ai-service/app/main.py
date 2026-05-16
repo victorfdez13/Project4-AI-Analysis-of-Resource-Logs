@@ -42,6 +42,7 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
                     "metadata": metadata,
                 },
                 analysis=response.model_dump(),
+                prompt=request.prompt,
             )
         except (PyMongoError, ValueError):
             pass
@@ -72,9 +73,16 @@ def get_log(log_id: int, dataset: str = Query(...)) -> dict[str, Any]:
 
 @app.post("/logs/{log_id}/analyze")
 def analyze_real_log(
-    log_id: int, dataset: str = Query(...)
+    log_id: int,
+    dataset: str = Query(...),
+    prompt: Optional[str] = Query(default=None),
 ) -> dict[str, Any]:
-    """Analyze a real SpeedAdmin log and persist the result."""
+    """Analyze a real SpeedAdmin log and persist the result.
+
+    The optional ``prompt`` query parameter is the user's query that
+    motivated the analysis. It is persisted alongside the result so the
+    saved analysis can be reused later (project proposal US5 / FR5).
+    """
     if not log_repository.is_valid_dataset(dataset):
         raise HTTPException(
             status_code=400, detail=f"Unknown dataset '{dataset}'."
@@ -101,6 +109,7 @@ def analyze_real_log(
             log_id=log_id,
             original_log=log,
             analysis=analysis,
+            prompt=prompt,
         )
     except PyMongoError as exc:
         raise HTTPException(status_code=503, detail=f"MongoDB error: {exc}") from exc
