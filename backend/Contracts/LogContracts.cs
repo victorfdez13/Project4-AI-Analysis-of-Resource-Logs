@@ -85,3 +85,10 @@ public sealed record SavedLogDocument(
     [property: JsonPropertyName("analyzedAt")] string? AnalyzedAt,
     [property: JsonPropertyName("originalLog")] JsonElement? OriginalLog,
     [property: JsonPropertyName("analysis")] AiAnalyzeResponse? Analysis);
+
+public sealed record SavedAnalysisResult(
+    string Id,
+    string Dataset,
+    int LogId,
+    string AnalyzedAt,
+    AiAnalyzeResponse Analysis);

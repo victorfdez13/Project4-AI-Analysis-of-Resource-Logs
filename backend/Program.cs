@@ -12,7 +12,7 @@ var builder = WebApplication.CreateBuilder(args);
 var users = builder.Configuration
     .GetSection("Users")
     .Get<List<UserConfig>>() ?? new();
-    
+
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
@@ -30,6 +30,7 @@ builder.Services.AddOpenApi();
 builder.Services.Configure<BackendOptions>(builder.Configuration);
 builder.Services.AddSingleton<SqlLogRepository>();
 builder.Services.AddSingleton<DatabaseHealthService>();
+builder.Services.AddSingleton<MongoPromptRepository>();
 builder.Services.AddSingleton<IMongoClient>(_ =>
 {
     var connectionString = builder.Configuration.GetConnectionString("MongoDb")
@@ -106,7 +107,6 @@ app.MapGet("/health/ai", async (AiAnalysisClient aiClient, CancellationToken can
         : Results.Json(result, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
-
 // REGISTER
 app.MapPost("/register", (RegisterRequest request) =>
 {
@@ -124,11 +124,8 @@ app.MapPost("/register", (RegisterRequest request) =>
     {
         Username = request.Username,
         Password = request.Password,
-
         ApiKey = Guid.NewGuid().ToString(),
-
         Role = "viewer",
-
         AllowedDatasets = new List<string>
         {
             "DATASET1"
@@ -143,6 +140,7 @@ app.MapPost("/register", (RegisterRequest request) =>
         apiKey = user.ApiKey
     });
 });
+
 // All /api/logs routes require authentication
 var logRoutes = app.MapGroup("/api/logs").RequireAuthorization();
 
@@ -225,12 +223,14 @@ logRoutes.MapGet("/summary", async (
     }
 }).RequireAuthorization("ViewerAccess");
 
+// Analyze endpoint — runs AI analysis and saves result to MongoDB
 logRoutes.MapPost("/{id:int}/analyze", async (
     int id,
     string? dataset,
     HttpContext context,
     SqlLogRepository repository,
     AiAnalysisClient aiClient,
+    MongoPromptRepository mongoRepository,
     CancellationToken cancellationToken) =>
 {
     if (!IsDatasetAllowed(context, dataset))
@@ -245,8 +245,16 @@ logRoutes.MapPost("/{id:int}/analyze", async (
         }
 
         var analysis = await aiClient.AnalyzeAsync(log, cancellationToken);
-        var response = new LogAnalysisResponse(log, analysis);
 
+        // Save prompt result to MongoDB
+        await mongoRepository.SaveAnalysisAsync(
+            log.Dataset,
+            log.LogId,
+            log,
+            analysis,
+            cancellationToken);
+
+        var response = new LogAnalysisResponse(log, analysis);
         return Results.Ok(response);
     }
     catch (ArgumentException exception)
@@ -262,6 +270,59 @@ logRoutes.MapPost("/{id:int}/analyze", async (
     }
 })
 .RequireAuthorization("AnalystOrAdmin");
+
+// Retrieve saved analysis for a specific log from MongoDB
+logRoutes.MapGet("/{id:int}/analysis", async (
+    int id,
+    string? dataset,
+    HttpContext context,
+    SqlLogRepository repository,
+    MongoPromptRepository mongoRepository,
+    CancellationToken cancellationToken) =>
+{
+    if (!IsDatasetAllowed(context, dataset))
+        return Results.Forbid();
+
+    try
+    {
+        var resolvedDataset = dataset ?? repository.GetConfiguredDatasets().FirstOrDefault() ?? "";
+        var result = await mongoRepository.GetAnalysisAsync(resolvedDataset, id, cancellationToken);
+
+        return result is null
+            ? Results.NotFound(new { message = $"No saved analysis found for log {id}." })
+            : Results.Ok(result);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { message = exception.Message });
+    }
+}).RequireAuthorization("ViewerAccess");
+
+// List all saved analyses for a dataset from MongoDB
+logRoutes.MapGet("/analyses", async (
+    string? dataset,
+    int limit,
+    HttpContext context,
+    SqlLogRepository repository,
+    MongoPromptRepository mongoRepository,
+    CancellationToken cancellationToken) =>
+{
+    if (!IsDatasetAllowed(context, dataset))
+        return Results.Forbid();
+
+    try
+    {
+        var resolvedDataset = dataset ?? repository.GetConfiguredDatasets().FirstOrDefault() ?? "";
+        var normalizedLimit = Math.Clamp(limit == 0 ? 50 : limit, 1, 200);
+        var results = await mongoRepository.ListAnalysesAsync(resolvedDataset, normalizedLimit, cancellationToken);
+
+        return Results.Ok(new { dataset = resolvedDataset, analyses = results });
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { message = exception.Message });
+    }
+}).RequireAuthorization("ViewerAccess");
 
 var savedLogRoutes = app.MapGroup("/api/saved-logs");
 
@@ -334,7 +395,7 @@ app.Run();
 // Helper: check if the requested dataset is in the user's allowed list
 static bool IsDatasetAllowed(HttpContext context, string? dataset)
 {
-    if (string.IsNullOrWhiteSpace(dataset)) return true; // let the repo handle missing dataset
+    if (string.IsNullOrWhiteSpace(dataset)) return true;
     var allowed = context.User.FindAll("dataset").Select(c => c.Value);
     return allowed.Contains(dataset, StringComparer.OrdinalIgnoreCase);
 }
@@ -367,13 +428,12 @@ public class ApiKeyAuthHandler : AuthenticationHandler<AuthenticationSchemeOptio
         if (user is null)
             return Task.FromResult(AuthenticateResult.Fail("Invalid API key."));
 
-    var claims = new List<Claim>
-{
-    new Claim(ClaimTypes.Name, user.ApiKey),
-
-    // Claim of rol
-    new Claim(ClaimTypes.Role, user.Role)
-};
+        var claims = new List<Claim>
+        {
+            new Claim(ClaimTypes.Name, user.ApiKey),
+            // Claim of rol
+            new Claim(ClaimTypes.Role, user.Role)
+        };
 
         // Add one claim per allowed dataset
         foreach (var dataset in user.AllowedDatasets)
@@ -390,12 +450,8 @@ public class ApiKeyAuthHandler : AuthenticationHandler<AuthenticationSchemeOptio
 public class UserConfig
 {
     public string Username { get; set; } = string.Empty;
-
     public string Password { get; set; } = string.Empty;
-
     public string ApiKey { get; set; } = string.Empty;
-
     public string Role { get; set; } = "viewer";
-
     public List<string> AllowedDatasets { get; set; } = new();
 }
