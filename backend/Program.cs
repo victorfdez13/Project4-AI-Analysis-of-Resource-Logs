@@ -63,8 +63,21 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("ViewerAccess", policy =>
         policy.RequireRole("admin", "analyst", "viewer"));
 });
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend",
+        policy =>
+        {
+            policy
+                .AllowAnyOrigin()
+                .AllowAnyHeader()
+                .AllowAnyMethod();
+        });
+});
 
 var app = builder.Build();
+
+app.UseCors("AllowFrontend");
 
 if (app.Environment.IsDevelopment())
 {
@@ -104,68 +117,6 @@ app.MapGet("/health/ai", async (AiAnalysisClient aiClient, CancellationToken can
     return result.IsHealthy
         ? Results.Ok(result)
         : Results.Json(result, statusCode: StatusCodes.Status503ServiceUnavailable);
-});
-app.MapGet("/health", (SqlLogRepository repository) => Results.Ok(new
-{
-    status = "ok",
-    service = "backend",
-    datasets = repository.GetConfiguredDatasets()
-}));
-
-app.MapGet("/health/database", async (DatabaseHealthService healthService, CancellationToken cancellationToken) =>
-{
-    var result = await healthService.CheckAsync(cancellationToken);
-
-    return result.IsHealthy
-        ? Results.Ok(result)
-        : Results.Json(result, statusCode: StatusCodes.Status503ServiceUnavailable);
-});
-
-app.MapGet("/health/ai", async (AiAnalysisClient aiClient, CancellationToken cancellationToken) =>
-{
-    var result = await aiClient.CheckHealthAsync(cancellationToken);
-
-    return result.IsHealthy
-        ? Results.Ok(result)
-        : Results.Json(result, statusCode: StatusCodes.Status503ServiceUnavailable);
-});
-
-
-// REGISTER
-app.MapPost("/register", (RegisterRequest request) =>
-{
-    // Verificar si ya existe
-    if (users.Any(u => u.Username == request.Username))
-    {
-        return Results.BadRequest(new
-        {
-            message = "Username already exists"
-        });
-    }
-
-    // Crear usuario
-    var user = new UserConfig
-    {
-        Username = request.Username,
-        Password = request.Password,
-
-        ApiKey = Guid.NewGuid().ToString(),
-
-        Role = "viewer",
-
-        AllowedDatasets = new List<string>
-        {
-            "DATASET1"
-        }
-    };
-
-    users.Add(user);
-
-    return Results.Ok(new
-    {
-        message = "Account created successfully",
-        apiKey = user.ApiKey
-    });
 });
 // All /api/logs routes require authentication
 var logRoutes = app.MapGroup("/api/logs").RequireAuthorization();
@@ -266,6 +217,41 @@ logRoutes.MapPost("/{id:int}/analyze", async (
     }
 })
 .RequireAuthorization("AnalystOrAdmin");
+app.MapPost("/register", (RegisterRequest request) =>
+{
+    // Check if username already exists
+    if (users.Any(u => u.Username == request.Username))
+    {
+        return Results.BadRequest(new
+        {
+            message = "Username already exists"
+        });
+    }
+
+    // Create new user
+    var user = new UserConfig
+    {
+        Username = request.Username,
+        Password = request.Password,
+
+        ApiKey = Guid.NewGuid().ToString(),
+
+        Role = "viewer",
+
+        AllowedDatasets = new List<string>
+        {
+            "DATASET1"
+        }
+    };
+
+    users.Add(user);
+
+    return Results.Ok(new
+    {
+        message = "Account created successfully",
+        apiKey = user.ApiKey
+    });
+});
 
 app.Run();
 

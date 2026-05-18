@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import './Login.css';
 
@@ -141,7 +142,7 @@ export default function Login() {
           {/* Sign up link */}
           <p className="login-signup">
             Don't have an account?{' '}
-            <a href="#">Sign up here</a>
+            <Link to="/register">Sign up here</Link>
           </p>
 
         </form>
