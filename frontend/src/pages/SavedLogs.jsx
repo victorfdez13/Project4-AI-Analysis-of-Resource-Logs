@@ -1,194 +1,109 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || "http://localhost:5005";
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL?.trim() || "http://localhost:5005"
+).replace(/\/+$/, "");
 
-function formatDateGroup(iso) {
-  if (!iso) return "Unknown date";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "Unknown date";
-  const today = new Date();
-  const yest = new Date();
-  yest.setDate(today.getDate() - 1);
-  const sameDay = (a, b) =>
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate();
-  const long = d.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
+const API_KEY = "key-admin-full";
+
+async function requestJson(path, options = {}) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: {
+      Accept: "application/json",
+      "X-Api-Key": API_KEY,
+      ...options.headers,
+    },
+    ...options,
   });
-  if (sameDay(d, today)) return `Today — ${long}`;
-  if (sameDay(d, yest)) return `Yesterday — ${long}`;
-  return long;
+
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : null;
+
+  if (!response.ok) {
+    throw new Error(
+      payload?.message || payload?.title || `HTTP ${response.status}`
+    );
+  }
+
+  return payload;
 }
 
-function formatDateTime(iso) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function shortTime(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-}
-
-function logTitle(item) {
-  const cat = item?.originalLog?.category || "Log";
-  return `${cat} #${item.logId ?? "?"}`;
-}
-
-function groupByDate(items) {
-  return items.reduce((groups, item) => {
-    const key = formatDateGroup(item.analyzedAt);
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(item);
-    return groups;
-  }, {});
-}
+const navItems = [
+  { label: "Dashboard", path: "/main" },
+  { label: "Saved Logs", path: "/saved-logs" },
+  { label: "Analysis", path: "/analysis" },
+  { label: "Settings", path: "/settings" },
+];
 
 export default function SavedLogs() {
   const navigate = useNavigate();
+
   const [datasets, setDatasets] = useState([]);
-  const [dataset, setDataset] = useState(null);
-  const [datasetsError, setDatasetsError] = useState(null);
-  const [items, setItems] = useState([]);
-  const [listLoading, setListLoading] = useState(true);
-  const [listError, setListError] = useState(null);
-
-  const [selectedKey, setSelectedKey] = useState(null);
-  const [detail, setDetail] = useState(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState(null);
-
+  const [activeDataset, setActiveDataset] = useState("");
+  const [analyses, setAnalyses] = useState([]);
+  const [selected, setSelected] = useState(null);
   const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const pickDataset = (d) => {
-    if (d === dataset) return;
-    setItems([]);
-    setSelectedKey(null);
-    setDetail(null);
-    setDetailError(null);
-    setListError(null);
-    setListLoading(true);
-    setDataset(d);
-  };
-
-  const pickLog = (logId) => {
-    setDetail(null);
-    setDetailError(null);
-    setDetailLoading(true);
-    setSelectedKey(logId);
-  };
-
-  const closeDetail = () => {
-    setSelectedKey(null);
-    setDetail(null);
-    setDetailError(null);
-    setDetailLoading(false);
-  };
-
-  // Load configured datasets from the backend (FR1)
+  // Load datasets
   useEffect(() => {
-    const controller = new AbortController();
-
-    fetch(`${API_BASE}/api/logs/datasets`, { signal: controller.signal })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status} — ${await r.text()}`);
-        return r.json();
-      })
-      .then((data) => {
-        const list = Array.isArray(data?.datasets) ? data.datasets : [];
+    async function loadDatasets() {
+      try {
+        const response = await requestJson("/api/logs/datasets");
+        const list = response?.datasets || [];
         setDatasets(list);
-        setDataset((current) => current ?? list[0] ?? null);
-      })
-      .catch((err) => {
-        if (err.name !== "AbortError")
-          setDatasetsError(err.message || String(err));
-      });
-
-    return () => controller.abort();
+        setActiveDataset(list[0] || "");
+      } catch (err) {
+        setError(`Failed to load datasets: ${err.message}`);
+      }
+    }
+    loadDatasets();
   }, []);
 
-  // SCRUM-36 — load list from /api/saved-logs whenever dataset changes
+  // Load analyses when dataset changes
   useEffect(() => {
-    if (!dataset) return;
-    const controller = new AbortController();
+    if (!activeDataset) return;
 
-    fetch(`${API_BASE}/api/saved-logs?dataset=${encodeURIComponent(dataset)}&limit=100`, {
-      signal: controller.signal,
-    })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status} — ${await r.text()}`);
-        return r.json();
-      })
-      .then((data) => setItems(Array.isArray(data) ? data : []))
-      .catch((err) => {
-        if (err.name !== "AbortError") setListError(err.message || String(err));
-      })
-      .finally(() => setListLoading(false));
+    async function loadAnalyses() {
+      try {
+        setLoading(true);
+        setError("");
+        const response = await requestJson(
+          `/api/logs/analyses?dataset=${encodeURIComponent(activeDataset)}&limit=50`
+        );
+        const list = response?.analyses || [];
+        setAnalyses(list);
+        setSelected(list[0] || null);
+      } catch (err) {
+        setError(`Failed to load analyses: ${err.message}`);
+        setAnalyses([]);
+        setSelected(null);
+      } finally {
+        setLoading(false);
+      }
+    }
 
-    return () => controller.abort();
-  }, [dataset]);
+    loadAnalyses();
+  }, [activeDataset]);
 
-  // SCRUM-37 — load one analysis from /api/saved-logs/{log_id} on click
-  useEffect(() => {
-    if (selectedKey == null || !dataset) return;
-    const controller = new AbortController();
+  const filtered = analyses.filter((a) =>
+    String(a.logId).includes(search) ||
+    a.analysis?.summary?.toLowerCase().includes(search.toLowerCase())
+  );
 
-    fetch(
-      `${API_BASE}/api/saved-logs/${selectedKey}?dataset=${encodeURIComponent(dataset)}`,
-      { signal: controller.signal },
-    )
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status} — ${await r.text()}`);
-        return r.json();
-      })
-      .then((data) => setDetail(data))
-      .catch((err) => {
-        if (err.name !== "AbortError") setDetailError(err.message || String(err));
-      })
-      .finally(() => setDetailLoading(false));
-
-    return () => controller.abort();
-  }, [selectedKey, dataset]);
-
-  const filtered = useMemo(() => {
-    if (!search.trim()) return items;
-    const q = search.toLowerCase();
-    return items.filter((it) => {
-      const haystack = [
-        String(it.logId ?? ""),
-        it.originalLog?.category,
-        it.originalLog?.message,
-        it.analysis?.summary,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(q);
-    });
-  }, [items, search]);
-
-  const grouped = useMemo(() => groupByDate(filtered), [filtered]);
-
-  const navItems = [
-    { label: "Dashboard", path: "/main" },
-    { label: "Saved Logs", path: "/saved-logs" },
-    { label: "Analysis", path: "/analysis" },
-    { label: "Settings", path: "/settings" },
-  ];
+  function handleDownload() {
+    if (!selected) return;
+    const content = JSON.stringify(selected.analysis, null, 2);
+    const blob = new Blob([content], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `log-${selected.logId}-analysis.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="flex flex-col min-h-screen bg-[#f4f6f8] font-sans">
@@ -224,34 +139,27 @@ export default function SavedLogs() {
 
       {/* Body */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Log List */}
+        {/* Sidebar */}
         <div className="w-80 border-r border-[#d9e1e7] p-5 overflow-y-auto flex-shrink-0 bg-white">
-          <h2 className="text-[#0e5a74] text-base font-semibold mb-3">Saved Logs</h2>
+          <h2 className="text-[#0e5a74] text-base font-semibold mb-4">Saved Logs</h2>
 
-          {/* Dataset toggle — populated from GET /api/logs/datasets */}
-          {datasetsError ? (
-            <div className="text-red-600 text-xs bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">
-              Failed to load datasets: {datasetsError}
-            </div>
-          ) : datasets.length === 0 ? (
-            <p className="text-[#1f2a37]/40 text-xs mb-4">Loading datasets…</p>
-          ) : (
-            <div className="inline-flex flex-wrap rounded-lg border border-[#d9e1e7] bg-[#f9fafb] p-0.5 mb-4 gap-0.5">
-              {datasets.map((d) => (
-                <button
-                  key={d}
-                  onClick={() => pickDataset(d)}
-                  className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-                    dataset === d
-                      ? "bg-[#0e5a74] text-white"
-                      : "text-[#0e5a74] hover:bg-[#eef3f6]"
-                  }`}
-                >
-                  {d}
-                </button>
-              ))}
+          {error && (
+            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+              {error}
             </div>
           )}
+
+          {/* Dataset selector */}
+          <select
+            value={activeDataset}
+            onChange={(e) => setActiveDataset(e.target.value)}
+            disabled={datasets.length === 0}
+            className="w-full mb-3 rounded-lg border border-[#cfd8df] bg-white px-3 py-2 text-sm text-[#1f2a37] focus:border-[#0e5a74] focus:outline-none disabled:opacity-50"
+          >
+            {datasets.map((ds) => (
+              <option key={ds} value={ds}>{ds}</option>
+            ))}
+          </select>
 
           {/* Search */}
           <input
@@ -262,238 +170,126 @@ export default function SavedLogs() {
             className="w-full bg-white border border-[#cfd8df] rounded-lg px-4 py-2 text-sm text-[#1f2a37] placeholder-[#1f2a37]/40 focus:outline-none focus:border-[#0e5a74] focus:ring-2 focus:ring-[#0e5a74]/10 mb-4"
           />
 
-          {listLoading && (
-            <p className="text-[#1f2a37]/40 text-sm text-center mt-6">Loading…</p>
+          {loading && (
+            <p className="text-sm text-[#1f2a37]/40 text-center mt-6">Loading...</p>
           )}
-          {listError && !listLoading && (
-            <div className="text-red-600 text-xs bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">
-              Failed to load: {listError}
+
+          {!loading && filtered.map((item) => (
+            <div
+              key={item.id}
+              onClick={() => setSelected(item)}
+              className={`rounded-xl px-4 py-3 mb-2 cursor-pointer border transition-all ${
+                selected?.id === item.id
+                  ? "border-[#e9782e] bg-orange-50"
+                  : "border-[#d9e1e7] bg-[#f9fafb] hover:bg-[#eef3f6]"
+              }`}
+            >
+              <p className="text-[#1f2a37] text-sm font-semibold mb-1">
+                Log #{item.logId}
+              </p>
+              <p className="text-[#1f2a37]/50 text-xs truncate">
+                {item.analysis?.summary || "No summary"}
+              </p>
+              <p className="text-[#0e5a74]/50 text-[10px] mt-1">
+                {new Date(item.analyzedAt).toLocaleString()}
+              </p>
             </div>
-          )}
+          ))}
 
-          {/* Groups */}
-          {!listLoading &&
-            !listError &&
-            Object.entries(grouped).map(([date, group]) => (
-              <div key={date} className="mb-4">
-                <p className="text-[#0e5a74]/60 text-[10px] uppercase tracking-widest mb-2 font-semibold">
-                  {date}
-                </p>
-                {group.map((item) => {
-                  const isSelected = selectedKey === item.logId;
-                  const anomalyCount = item.analysis?.anomalies?.length ?? 0;
-                  return (
-                    <div
-                      key={item._id ?? `${item.dataset}-${item.logId}`}
-                      onClick={() => pickLog(item.logId)}
-                      className={`rounded-xl px-4 py-3 mb-2 cursor-pointer border transition-all ${
-                        isSelected
-                          ? "border-[#e9782e] bg-orange-50"
-                          : "border-[#d9e1e7] bg-[#f9fafb] hover:bg-[#eef3f6]"
-                      }`}
-                    >
-                      <p className="text-[#1f2a37] text-sm font-semibold mb-1 truncate">
-                        {logTitle(item)}
-                      </p>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[#1f2a37]/50 text-xs">
-                          {item.dataset} · {shortTime(item.analyzedAt)}
-                        </span>
-                        <span
-                          className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${
-                            anomalyCount > 0
-                              ? "bg-red-100 text-red-600"
-                              : "bg-teal-100 text-[#0e5a74]"
-                          }`}
-                        >
-                          {anomalyCount > 0
-                            ? `${anomalyCount} anomal${anomalyCount === 1 ? "y" : "ies"}`
-                            : "Clean"}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-
-          {!listLoading && !listError && filtered.length === 0 && (
+          {!loading && filtered.length === 0 && !error && (
             <p className="text-[#1f2a37]/30 text-sm text-center mt-10">
-              No saved logs found.
+              {analyses.length === 0
+                ? "No saved analyses yet. Analyze a log from the Dashboard first."
+                : "No results found."}
             </p>
           )}
         </div>
 
         {/* Detail Panel */}
         <div className="flex-1 p-6 overflow-y-auto">
-          {selectedKey == null ? (
+          {selected ? (
+            <div className="bg-white border border-[#d9e1e7] rounded-[18px] overflow-hidden shadow-[0_4px_14px_rgba(14,90,116,0.08)] max-w-3xl">
+              <div className="px-6 py-5 border-b border-[#d9e1e7] bg-[#fbfcfd] flex items-start justify-between">
+                <div>
+                  <h3 className="text-[#0e5a74] text-lg font-semibold mb-1">
+                    Log #{selected.logId}
+                  </h3>
+                  <p className="text-[#1f2a37]/50 text-sm">
+                    {selected.dataset} · Analyzed{" "}
+                    {new Date(selected.analyzedAt).toLocaleString()}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelected(null)}
+                  className="text-[#1f2a37]/30 hover:text-[#1f2a37]/60 text-lg leading-none mt-1"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="px-6 py-5 flex flex-col gap-5">
+                <div>
+                  <h4 className="text-sm font-semibold text-[#0e5a74] mb-1">Summary</h4>
+                  <p className="text-sm text-[#1f2a37]/70 leading-relaxed">
+                    {selected.analysis?.summary || "-"}
+                  </p>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-semibold text-[#0e5a74] mb-1">Explanation</h4>
+                  <p className="text-sm text-[#1f2a37]/70 leading-relaxed">
+                    {selected.analysis?.explanation || "-"}
+                  </p>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-semibold text-[#0e5a74] mb-2">Anomalies</h4>
+                  {selected.analysis?.anomalies?.length > 0 ? (
+                    <ul className="list-disc pl-5 text-sm text-[#1f2a37]/70 space-y-1">
+                      {selected.analysis.anomalies.map((a, i) => (
+                        <li key={i}>{a}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-[#1f2a37]/40">None detected</p>
+                  )}
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-semibold text-[#0e5a74] mb-2">Related Resources</h4>
+                  {selected.analysis?.relatedResources?.length > 0 ? (
+                    <ul className="list-disc pl-5 text-sm text-[#1f2a37]/70 space-y-1">
+                      {selected.analysis.relatedResources.map((r, i) => (
+                        <li key={i}>{r}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-[#1f2a37]/40">None</p>
+                  )}
+                </div>
+
+                <div className="flex gap-3 mt-2">
+                  <button
+                    onClick={handleDownload}
+                    className="px-5 py-2.5 rounded-lg bg-[#eef3f6] text-[#0e5a74] border border-[#d9e1e7] text-sm font-semibold hover:bg-[#e3ebf0] transition-colors"
+                  >
+                    Download
+                  </button>
+                  <button
+                    onClick={() => navigate("/analysis")}
+                    className="px-5 py-2.5 rounded-lg bg-[#e9782e] text-white text-sm font-bold hover:bg-[#d4691f] transition-colors"
+                  >
+                    View Analysis
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
             <div className="flex items-center justify-center h-full text-[#1f2a37]/30 text-sm">
               Select a log to view its analysis
             </div>
-          ) : detailLoading ? (
-            <div className="flex items-center justify-center h-full text-[#1f2a37]/40 text-sm">
-              Loading analysis…
-            </div>
-          ) : detailError ? (
-            <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 max-w-3xl">
-              <p className="text-red-600 text-sm font-semibold mb-1">
-                Could not load analysis
-              </p>
-              <p className="text-[#1f2a37]/70 text-sm">{detailError}</p>
-            </div>
-          ) : detail ? (
-            <DetailView detail={detail} onClose={closeDetail} />
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// SCRUM-38 — render summary, explanation, anomalies, related_resources
-function DetailView({ detail, onClose }) {
-  const original = detail.originalLog || {};
-  const analysis = detail.analysis || {};
-  const anomalies = analysis.anomalies || [];
-  const related = analysis.related_resources || [];
-
-  const rows = [
-    { label: "Dataset", value: detail.dataset },
-    { label: "Log ID", value: detail.logId },
-    { label: "Category", value: original.category || "—" },
-    { label: "Level", value: original.level ?? "—" },
-    { label: "Logged at", value: formatDateTime(original.time) },
-    { label: "Analyzed at", value: formatDateTime(detail.analyzedAt) },
-  ];
-
-  return (
-    <div className="bg-white border border-[#d9e1e7] rounded-[18px] overflow-hidden shadow-[0_4px_14px_rgba(14,90,116,0.08)] max-w-3xl">
-      {/* Header */}
-      <div className="px-6 py-5 border-b border-[#d9e1e7] bg-[#fbfcfd] flex items-start justify-between">
-        <div>
-          <h3 className="text-[#0e5a74] text-lg font-semibold mb-1">
-            {(original.category || "Log") + " #" + detail.logId}
-          </h3>
-          <p className="text-[#1f2a37]/50 text-sm">
-            {detail.dataset} · {formatDateTime(detail.analyzedAt)}
-          </p>
-        </div>
-        <button
-          onClick={onClose}
-          className="text-[#1f2a37]/30 hover:text-[#1f2a37]/60 text-lg leading-none mt-1"
-        >
-          ✕
-        </button>
-      </div>
-
-      <div className="px-6 py-5">
-        {/* Prompt that produced this analysis (US5 / FR5) */}
-        <div className="mb-5">
-          <p className="text-[10px] uppercase tracking-widest text-[#0e5a74]/60 font-semibold mb-1">
-            Prompt
-          </p>
-          {detail.prompt ? (
-            <p className="text-[#1f2a37] text-sm leading-relaxed bg-[#fbfcfd] border border-[#e8edf1] rounded-lg px-4 py-3">
-              {detail.prompt}
-            </p>
-          ) : (
-            <p className="text-[#1f2a37]/40 text-sm italic">
-              No prompt recorded for this analysis.
-            </p>
           )}
         </div>
-
-        {/* Summary */}
-        {analysis.summary && (
-          <div className="mb-5">
-            <p className="text-[10px] uppercase tracking-widest text-[#0e5a74]/60 font-semibold mb-1">
-              Summary
-            </p>
-            <p className="text-[#1f2a37] text-sm leading-relaxed">
-              {analysis.summary}
-            </p>
-          </div>
-        )}
-
-        {/* Explanation */}
-        {analysis.explanation && (
-          <div className="mb-5">
-            <p className="text-[10px] uppercase tracking-widest text-[#0e5a74]/60 font-semibold mb-1">
-              Explanation
-            </p>
-            <p className="text-[#1f2a37]/80 text-sm leading-relaxed">
-              {analysis.explanation}
-            </p>
-          </div>
-        )}
-
-        {/* Metadata rows */}
-        <div className="border-t border-[#e8edf1]">
-          {rows.map(({ label, value }) => (
-            <div
-              key={label}
-              className="flex justify-between items-center py-2.5 border-b border-[#e8edf1] text-sm last:border-none"
-            >
-              <span className="text-[#1f2a37]/50 font-medium">{label}</span>
-              <span className="font-semibold text-[#1f2a37]">{String(value)}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Anomalies */}
-        <div className="mt-5">
-          <p className="text-[10px] uppercase tracking-widest text-[#0e5a74]/60 font-semibold mb-2">
-            Anomalies ({anomalies.length})
-          </p>
-          {anomalies.length === 0 ? (
-            <p className="text-[#1f2a37]/60 text-sm">No anomalies detected.</p>
-          ) : (
-            <ul className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 space-y-1.5">
-              {anomalies.map((a, i) => (
-                <li
-                  key={i}
-                  className="text-red-700 text-sm leading-relaxed flex gap-2"
-                >
-                  <span className="text-red-500">•</span>
-                  <span>{a}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* Related resources */}
-        <div className="mt-5">
-          <p className="text-[10px] uppercase tracking-widest text-[#0e5a74]/60 font-semibold mb-2">
-            Related resources ({related.length})
-          </p>
-          {related.length === 0 ? (
-            <p className="text-[#1f2a37]/60 text-sm">None.</p>
-          ) : (
-            <ul className="flex flex-wrap gap-2">
-              {related.map((r, i) => (
-                <li
-                  key={i}
-                  className="text-[#0e5a74] bg-[#eef3f6] border border-[#d9e1e7] rounded-full px-3 py-1 text-xs font-mono"
-                >
-                  {r}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* Original log message */}
-        {original.message && (
-          <div className="mt-5">
-            <p className="text-[10px] uppercase tracking-widest text-[#0e5a74]/60 font-semibold mb-2">
-              Original message
-            </p>
-            <pre className="bg-[#f9fafb] border border-[#e8edf1] rounded-lg px-4 py-3 text-xs text-[#1f2a37] whitespace-pre-wrap break-words">
-              {original.message}
-            </pre>
-          </div>
-        )}
       </div>
     </div>
   );
