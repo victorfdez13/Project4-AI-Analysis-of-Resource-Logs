@@ -14,6 +14,7 @@ class AnalyzeRequest(BaseModel):
     log_text: str
     timestamp: Optional[str] = None
     metadata: Optional[dict[str, Any]] = Field(default_factory=dict)
+    prompt: Optional[str] = None
 
 
 class AnalyzeResponse(BaseModel):

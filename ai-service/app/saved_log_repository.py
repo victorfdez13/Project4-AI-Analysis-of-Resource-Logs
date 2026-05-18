@@ -26,6 +26,7 @@ def save_analysis(
     log_id: int | None,
     original_log: dict[str, Any] | None,
     analysis: dict[str, Any],
+    prompt: str | None = None,
 ) -> dict[str, Any]:
     """
     Insert or update an analysis result.
@@ -33,11 +34,16 @@ def save_analysis(
     Uniqueness key is (dataset, logId). When logId is missing (e.g. an ad-hoc
     /analyze call without metadata) the document is simply inserted without
     upsert semantics so we do not collapse different ad-hoc analyses together.
+
+    The user prompt that produced the analysis is persisted alongside the
+    result so saved analyses can be reused or compared (project proposal
+    US5 / FR5).
     """
     now = datetime.now(timezone.utc)
     document = {
         "dataset": dataset,
         "logId": log_id,
+        "prompt": prompt,
         "analyzedAt": now,
         "originalLog": original_log,
         "analysis": analysis,

@@ -1,115 +1,109 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-const logs = [
-  {
-    id: "server",
-    name: "server-access-14:32.log",
-    type: "CPU Access Log",
-    size: "2.4 MB",
-    time: "May 1, 2026 · 14:32",
-    category: "CPU",
-    timeShort: "14:32",
-    status: "Analysed",
-    anomalies: "2 detected",
-    anomalyText: "High CPU spike at 14:28 and unusual access pattern at 14:31.",
-    showAnomaly: true,
-    date: "Today — May 1, 2026",
-  },
-  {
-    id: "memory",
-    name: "memory-usage-09:15.log",
-    type: "Memory Usage",
-    size: "1.1 MB",
-    time: "May 1, 2026 · 09:15",
-    category: "Memory",
-    timeShort: "09:15",
-    status: "Pending",
-    anomalies: "—",
-    anomalyText: "",
-    showAnomaly: false,
-    date: "Today — May 1, 2026",
-  },
-  {
-    id: "disk",
-    name: "disk-io-23:58.log",
-    type: "Disk I/O",
-    size: "3.7 MB",
-    time: "Apr 30, 2026 · 23:58",
-    category: "Disk",
-    timeShort: "23:58",
-    status: "Error",
-    anomalies: "Analysis failed",
-    anomalyText: "Failed to process log — file may be corrupted.",
-    showAnomaly: true,
-    date: "Yesterday — Apr 30, 2026",
-  },
-  {
-    id: "network",
-    name: "network-traffic-18:00.log",
-    type: "Network Traffic",
-    size: "0.8 MB",
-    time: "Apr 30, 2026 · 18:00",
-    category: "Network",
-    timeShort: "18:00",
-    status: "Analysed",
-    anomalies: "None",
-    anomalyText: "",
-    showAnomaly: false,
-    date: "Yesterday — Apr 30, 2026",
-  },
-  {
-    id: "cpu2",
-    name: "cpu-spike-11:44.log",
-    type: "CPU Spike",
-    size: "1.6 MB",
-    time: "Apr 29, 2026 · 11:44",
-    category: "CPU",
-    timeShort: "11:44",
-    status: "Pending",
-    anomalies: "—",
-    anomalyText: "",
-    showAnomaly: false,
-    date: "Apr 29, 2026",
-  },
-];
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL?.trim() || "http://localhost:5005"
+).replace(/\/+$/, "");
 
-const statusStyle = {
-  Analysed: "bg-teal-100 text-[#0e5a74]",
-  Pending: "bg-orange-100 text-[#e9782e]",
-  Error: "bg-red-100 text-red-600",
-};
+const API_KEY = "key-admin-full";
 
-const statusColor = {
-  Analysed: "text-[#0e5a74]",
-  Pending: "text-[#e9782e]",
-  Error: "text-red-600",
-};
+async function requestJson(path, options = {}) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: {
+      Accept: "application/json",
+      "X-Api-Key": API_KEY,
+      ...options.headers,
+    },
+    ...options,
+  });
 
-function groupByDate(logs) {
-  return logs.reduce((groups, log) => {
-    if (!groups[log.date]) groups[log.date] = [];
-    groups[log.date].push(log);
-    return groups;
-  }, {});
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : null;
+
+  if (!response.ok) {
+    throw new Error(
+      payload?.message || payload?.title || `HTTP ${response.status}`
+    );
+  }
+
+  return payload;
 }
 
+const navItems = [
+  { label: "Dashboard", path: "/main" },
+  { label: "Saved Logs", path: "/saved-logs" },
+  { label: "Analysis", path: "/analysis" },
+  { label: "Settings", path: "/settings" },
+];
+
 export default function SavedLogs() {
-  const [selected, setSelected] = useState(logs[0]);
-  const [search, setSearch] = useState("");
   const navigate = useNavigate();
 
-  const filtered = logs.filter((l) =>
-    l.name.toLowerCase().includes(search.toLowerCase())
-  );
-  const grouped = groupByDate(filtered);
+  const [datasets, setDatasets] = useState([]);
+  const [activeDataset, setActiveDataset] = useState("");
+  const [analyses, setAnalyses] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const navItems = [
-    { label: "Dashboard", path: "/main" },
-    { label: "Saved Logs", path: "/saved-logs" },
-    { label: "Analysis", path: "/analysis" },
-    { label: "Settings", path: "/settings" },
-  ];
+  // Load datasets
+  useEffect(() => {
+    async function loadDatasets() {
+      try {
+        const response = await requestJson("/api/logs/datasets");
+        const list = response?.datasets || [];
+        setDatasets(list);
+        setActiveDataset(list[0] || "");
+      } catch (err) {
+        setError(`Failed to load datasets: ${err.message}`);
+      }
+    }
+    loadDatasets();
+  }, []);
+
+  // Load analyses when dataset changes
+  useEffect(() => {
+    if (!activeDataset) return;
+
+    async function loadAnalyses() {
+      try {
+        setLoading(true);
+        setError("");
+        const response = await requestJson(
+          `/api/logs/analyses?dataset=${encodeURIComponent(activeDataset)}&limit=50`
+        );
+        const list = response?.analyses || [];
+        setAnalyses(list);
+        setSelected(list[0] || null);
+      } catch (err) {
+        setError(`Failed to load analyses: ${err.message}`);
+        setAnalyses([]);
+        setSelected(null);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadAnalyses();
+  }, [activeDataset]);
+
+  const filtered = analyses.filter((a) =>
+    String(a.logId).includes(search) ||
+    a.analysis?.summary?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  function handleDownload() {
+    if (!selected) return;
+    const content = JSON.stringify(selected.analysis, null, 2);
+    const blob = new Blob([content], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `log-${selected.logId}-analysis.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="flex flex-col min-h-screen bg-[#f4f6f8] font-sans">
@@ -145,53 +139,69 @@ export default function SavedLogs() {
 
       {/* Body */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Log List */}
+        {/* Sidebar */}
         <div className="w-80 border-r border-[#d9e1e7] p-5 overflow-y-auto flex-shrink-0 bg-white">
           <h2 className="text-[#0e5a74] text-base font-semibold mb-4">Saved Logs</h2>
+
+          {error && (
+            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+              {error}
+            </div>
+          )}
+
+          {/* Dataset selector */}
+          <select
+            value={activeDataset}
+            onChange={(e) => setActiveDataset(e.target.value)}
+            disabled={datasets.length === 0}
+            className="w-full mb-3 rounded-lg border border-[#cfd8df] bg-white px-3 py-2 text-sm text-[#1f2a37] focus:border-[#0e5a74] focus:outline-none disabled:opacity-50"
+          >
+            {datasets.map((ds) => (
+              <option key={ds} value={ds}>{ds}</option>
+            ))}
+          </select>
 
           {/* Search */}
           <input
             type="text"
-            placeholder="🔍 Search logs..."
+            placeholder="🔍 Search by id, category, message..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-white border border-[#cfd8df] rounded-lg px-4 py-2 text-sm text-[#1f2a37] placeholder-[#1f2a37]/40 focus:outline-none focus:border-[#0e5a74] focus:ring-2 focus:ring-[#0e5a74]/10 mb-4"
           />
 
-          {/* Groups */}
-          {Object.entries(grouped).map(([date, items]) => (
-            <div key={date} className="mb-4">
-              <p className="text-[#0e5a74]/60 text-[10px] uppercase tracking-widest mb-2 font-semibold">
-                {date}
+          {loading && (
+            <p className="text-sm text-[#1f2a37]/40 text-center mt-6">Loading...</p>
+          )}
+
+          {!loading && filtered.map((item) => (
+            <div
+              key={item.id}
+              onClick={() => setSelected(item)}
+              className={`rounded-xl px-4 py-3 mb-2 cursor-pointer border transition-all ${
+                selected?.id === item.id
+                  ? "border-[#e9782e] bg-orange-50"
+                  : "border-[#d9e1e7] bg-[#f9fafb] hover:bg-[#eef3f6]"
+              }`}
+            >
+              <p className="text-[#1f2a37] text-sm font-semibold mb-1">
+                Log #{item.logId}
               </p>
-              {items.map((log) => (
-                <div
-                  key={log.id}
-                  onClick={() => setSelected(log)}
-                  className={`rounded-xl px-4 py-3 mb-2 cursor-pointer border transition-all ${
-                    selected?.id === log.id
-                      ? "border-[#e9782e] bg-orange-50"
-                      : "border-[#d9e1e7] bg-[#f9fafb] hover:bg-[#eef3f6]"
-                  }`}
-                >
-                  <p className="text-[#1f2a37] text-sm font-semibold mb-1 truncate">
-                    {log.name}
-                  </p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[#1f2a37]/50 text-xs">
-                      {log.category} · {log.timeShort}
-                    </span>
-                    <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${statusStyle[log.status]}`}>
-                      {log.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
+              <p className="text-[#1f2a37]/50 text-xs truncate">
+                {item.analysis?.summary || "No summary"}
+              </p>
+              <p className="text-[#0e5a74]/50 text-[10px] mt-1">
+                {new Date(item.analyzedAt).toLocaleString()}
+              </p>
             </div>
           ))}
 
-          {filtered.length === 0 && (
-            <p className="text-[#1f2a37]/30 text-sm text-center mt-10">No logs found.</p>
+          {!loading && filtered.length === 0 && !error && (
+            <p className="text-[#1f2a37]/30 text-sm text-center mt-10">
+              {analyses.length === 0
+                ? "No saved analyses yet. Analyze a log from the Dashboard first."
+                : "No results found."}
+            </p>
           )}
         </div>
 
@@ -199,14 +209,14 @@ export default function SavedLogs() {
         <div className="flex-1 p-6 overflow-y-auto">
           {selected ? (
             <div className="bg-white border border-[#d9e1e7] rounded-[18px] overflow-hidden shadow-[0_4px_14px_rgba(14,90,116,0.08)] max-w-3xl">
-              {/* Header */}
               <div className="px-6 py-5 border-b border-[#d9e1e7] bg-[#fbfcfd] flex items-start justify-between">
                 <div>
                   <h3 className="text-[#0e5a74] text-lg font-semibold mb-1">
-                    {selected.name}
+                    Log #{selected.logId}
                   </h3>
                   <p className="text-[#1f2a37]/50 text-sm">
-                    {selected.type} · {selected.time.split(" · ")[0]}
+                    {selected.dataset} · Analyzed{" "}
+                    {new Date(selected.analyzedAt).toLocaleString()}
                   </p>
                 </div>
                 <button
@@ -217,44 +227,58 @@ export default function SavedLogs() {
                 </button>
               </div>
 
-              <div className="px-6 py-5">
-                {/* Rows */}
-                {[
-                  { label: "Type", value: selected.type },
-                  { label: "Size", value: selected.size },
-                  { label: "Saved at", value: selected.time },
-                  { label: "AI Status", value: selected.status, colored: true },
-                  { label: "Anomalies", value: selected.anomalies },
-                ].map(({ label, value, colored }) => (
-                  <div
-                    key={label}
-                    className="flex justify-between items-center py-3 border-b border-[#e8edf1] text-sm last:border-none"
+              <div className="px-6 py-5 flex flex-col gap-5">
+                <div>
+                  <h4 className="text-sm font-semibold text-[#0e5a74] mb-1">Summary</h4>
+                  <p className="text-sm text-[#1f2a37]/70 leading-relaxed">
+                    {selected.analysis?.summary || "-"}
+                  </p>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-semibold text-[#0e5a74] mb-1">Explanation</h4>
+                  <p className="text-sm text-[#1f2a37]/70 leading-relaxed">
+                    {selected.analysis?.explanation || "-"}
+                  </p>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-semibold text-[#0e5a74] mb-2">Anomalies</h4>
+                  {selected.analysis?.anomalies?.length > 0 ? (
+                    <ul className="list-disc pl-5 text-sm text-[#1f2a37]/70 space-y-1">
+                      {selected.analysis.anomalies.map((a, i) => (
+                        <li key={i}>{a}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-[#1f2a37]/40">None detected</p>
+                  )}
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-semibold text-[#0e5a74] mb-2">Related Resources</h4>
+                  {selected.analysis?.relatedResources?.length > 0 ? (
+                    <ul className="list-disc pl-5 text-sm text-[#1f2a37]/70 space-y-1">
+                      {selected.analysis.relatedResources.map((r, i) => (
+                        <li key={i}>{r}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-[#1f2a37]/40">None</p>
+                  )}
+                </div>
+
+                <div className="flex gap-3 mt-2">
+                  <button
+                    onClick={handleDownload}
+                    className="px-5 py-2.5 rounded-lg bg-[#eef3f6] text-[#0e5a74] border border-[#d9e1e7] text-sm font-semibold hover:bg-[#e3ebf0] transition-colors"
                   >
-                    <span className="text-[#1f2a37]/50 font-medium">{label}</span>
-                    <span className={`font-semibold ${colored ? statusColor[selected.status] : "text-[#1f2a37]"}`}>
-                      {value}
-                    </span>
-                  </div>
-                ))}
-
-                {/* Anomaly box */}
-                {selected.showAnomaly && (
-                  <div className="mt-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-                    <p className="text-red-600 text-sm font-semibold mb-1">
-                      Anomalies detected
-                    </p>
-                    <p className="text-[#1f2a37]/60 text-sm leading-relaxed">
-                      {selected.anomalyText}
-                    </p>
-                  </div>
-                )}
-
-                {/* Actions */}
-                <div className="flex gap-3 mt-6">
-                  <button className="px-5 py-2.5 rounded-lg bg-[#eef3f6] text-[#0e5a74] border border-[#d9e1e7] text-sm font-semibold hover:bg-[#e3ebf0] transition-colors">
                     Download
                   </button>
-                  <button className="px-5 py-2.5 rounded-lg bg-[#e9782e] text-white text-sm font-bold hover:bg-[#d4691f] transition-colors">
+                  <button
+                    onClick={() => navigate("/analysis")}
+                    className="px-5 py-2.5 rounded-lg bg-[#e9782e] text-white text-sm font-bold hover:bg-[#d4691f] transition-colors"
+                  >
                     View Analysis
                   </button>
                 </div>
@@ -262,7 +286,7 @@ export default function SavedLogs() {
             </div>
           ) : (
             <div className="flex items-center justify-center h-full text-[#1f2a37]/30 text-sm">
-              Select a log to view details
+              Select a log to view its analysis
             </div>
           )}
         </div>

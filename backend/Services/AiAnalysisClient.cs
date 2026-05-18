@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using Microsoft.Extensions.Options;
 using Project4_AI_Analysis_of_Resource_Logs.Contracts;
@@ -73,5 +74,49 @@ public sealed class AiAnalysisClient
 
         var payload = await response.Content.ReadFromJsonAsync<AiAnalyzeResponse>(cancellationToken: cancellationToken);
         return payload ?? throw new InvalidOperationException("AI service returned an empty response body.");
+    }
+
+    public async Task<IReadOnlyList<SavedLogDocument>> ListSavedLogsAsync(
+        string dataset,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var query = $"saved-logs?dataset={Uri.EscapeDataString(dataset)}&limit={limit}";
+        using var response = await _httpClient.GetAsync(query, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new HttpRequestException(
+                $"AI service returned HTTP {(int)response.StatusCode}: {responseBody}");
+        }
+
+        var payload = await response.Content.ReadFromJsonAsync<List<SavedLogDocument>>(
+            cancellationToken: cancellationToken);
+        return payload ?? [];
+    }
+
+    public async Task<SavedLogDocument?> GetSavedLogAsync(
+        string dataset,
+        int logId,
+        CancellationToken cancellationToken)
+    {
+        var query = $"saved-logs/{logId}?dataset={Uri.EscapeDataString(dataset)}";
+        using var response = await _httpClient.GetAsync(query, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new HttpRequestException(
+                $"AI service returned HTTP {(int)response.StatusCode}: {responseBody}");
+        }
+
+        return await response.Content.ReadFromJsonAsync<SavedLogDocument>(
+            cancellationToken: cancellationToken);
     }
 }

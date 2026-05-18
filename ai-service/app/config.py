@@ -38,6 +38,12 @@ class Settings:
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.2")
 
+    CORS_ALLOW_ORIGINS: list[str] = [
+        origin.strip()
+        for origin in os.getenv("CORS_ALLOW_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
+
     DATASET_COLLECTION_MAP: dict[str, str] = {
         "DATASET1": MONGO_DATASET1_COLLECTION,
         "DATASET2": MONGO_DATASET2_COLLECTION,

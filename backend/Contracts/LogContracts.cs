@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Project4_AI_Analysis_of_Resource_Logs.Contracts;
@@ -45,6 +46,21 @@ public sealed record LogListResponse(
     int TotalCount,
     IReadOnlyList<ResourceLogSummary> Items);
 
+public sealed record LogLevelCount(
+    string Level,
+    int Count);
+
+public sealed record DatasetSummaryResponse(
+    string Dataset,
+    int TotalCount,
+    int DistinctCategoryCount,
+    string? TopCategory,
+    int SessionCount,
+    int ImpersonatedCount,
+    DateTimeOffset? EarliestTime,
+    DateTimeOffset? LatestTime,
+    IReadOnlyList<LogLevelCount> Levels);
+
 public sealed record LogAnalysisResponse(
     ResourceLogDetail Log,
     AiAnalyzeResponse Analysis);
@@ -60,3 +76,19 @@ public sealed record AiAnalyzeResponse(
     [property: JsonPropertyName("explanation")] string Explanation,
     [property: JsonPropertyName("anomalies")] IReadOnlyList<string> Anomalies,
     [property: JsonPropertyName("related_resources")] IReadOnlyList<string> RelatedResources);
+
+public sealed record SavedLogDocument(
+    [property: JsonPropertyName("_id")] string? Id,
+    [property: JsonPropertyName("dataset")] string Dataset,
+    [property: JsonPropertyName("logId")] int? LogId,
+    [property: JsonPropertyName("prompt")] string? Prompt,
+    [property: JsonPropertyName("analyzedAt")] string? AnalyzedAt,
+    [property: JsonPropertyName("originalLog")] JsonElement? OriginalLog,
+    [property: JsonPropertyName("analysis")] AiAnalyzeResponse? Analysis);
+
+public sealed record SavedAnalysisResult(
+    string Id,
+    string Dataset,
+    int LogId,
+    string AnalyzedAt,
+    AiAnalyzeResponse Analysis);
