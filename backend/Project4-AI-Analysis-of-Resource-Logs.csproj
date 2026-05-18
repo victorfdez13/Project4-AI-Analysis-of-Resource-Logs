@@ -13,8 +13,4 @@
     <PackageReference Include="MongoDB.Driver" Version="3.2.1" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Compile Include="..\models\RegisterRequest.cs" Link="Models\RegisterRequest.cs" />
-  </ItemGroup>
-
 </Project>
