@@ -6,6 +6,7 @@ using Project4_AI_Analysis_of_Resource_Logs.Options;
 using Project4_AI_Analysis_of_Resource_Logs.Services;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using Project4_AI_Analysis_of_Resource_Logs.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -79,6 +80,9 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 app.UseCors("AllowFrontend");
+
+// Add error handling middleware
+app.UseErrorHandling();
 
 if (app.Environment.IsDevelopment())
 {
