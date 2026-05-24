@@ -1,0 +1,8 @@
+bin/
+obj/
+**/*.user
+.vs/
+*.suo
+
+# Local user store (passwords + api keys). Seeded from appsettings on first run.
+users.json

@@ -1,5 +1,6 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
+import { useAuth } from '../auth/useAuth';
 import './Login.css';
 
 const EyeIcon = () => (
@@ -31,7 +32,11 @@ const LogoIcon = () => (
 );
 
 export default function Login() {
-  const [email, setEmail]         = useState('');
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { login } = useAuth();
+
+  const [username, setUsername]   = useState('');
   const [password, setPassword]   = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -42,18 +47,21 @@ export default function Login() {
     e.preventDefault();
     setError('');
 
-    if (!email || !password) {
+    if (!username || !password) {
       setError('Please fill in all fields.');
       return;
     }
 
     setLoading(true);
-
-    // ⬇️ Reemplaza esto con tu llamada real a la API
-    await new Promise((r) => setTimeout(r, 1200));
-
-    setLoading(false);
-    setError('Incorrect email or password. Please try again.');
+    try {
+      await login(username.trim(), password);
+      const next = location.state?.from || '/main';
+      navigate(next, { replace: true });
+    } catch (err) {
+      setError(err?.message || 'Sign-in failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -69,8 +77,8 @@ export default function Login() {
           </div>
         </div>
 
-        <h1 className="login-title">Welcome</h1>
-        <p className="login-subtitle">Sign in to your Speed Admin account</p>
+        <h1 className="login-title">Internal Staff Portal</h1>
+        <p className="login-subtitle">Sign in with your work credentials</p>
 
         {/* Error message */}
         {error && (
@@ -79,16 +87,16 @@ export default function Login() {
 
         <form onSubmit={handleSubmit} noValidate>
 
-          {/* Email */}
+          {/* Username */}
           <div className="form-group">
-            <label htmlFor="email">Email address</label>
+            <label htmlFor="username">Username</label>
             <input
-              type="email"
-              id="email"
-              placeholder="you@email.com"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              id="username"
+              placeholder="e.g. admin"
+              autoComplete="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               required
             />
           </div>
@@ -117,7 +125,7 @@ export default function Login() {
             </div>
           </div>
 
-          {/* Remember me + Forgot password */}
+          {/* Remember me */}
           <div className="login-row">
             <label className="login-remember">
               <input
@@ -125,9 +133,8 @@ export default function Login() {
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
               />
-              Remember me
+              Keep me signed in on this device
             </label>
-            <a href="#" className="login-forgot">Forgot password?</a>
           </div>
 
           {/* Submit button */}
@@ -142,13 +149,15 @@ export default function Login() {
           {/* Sign up link */}
           <p className="login-signup">
             Don't have an account?{' '}
-            <Link to="/register">Sign up here</Link>
+            <Link to="/register">Request access</Link>
           </p>
 
         </form>
       </div>
 
-      <p className="login-footer">&copy; 2026 Speed Admin. All rights reserved.</p>
+      <p className="login-footer">
+        For authorised SpeedAdmin staff only. &copy; 2026 SpeedAdmin.
+      </p>
     </div>
   );
 }
