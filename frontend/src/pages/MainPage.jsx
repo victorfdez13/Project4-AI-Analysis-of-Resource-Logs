@@ -158,6 +158,8 @@ export default function MainPage() {
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [pythonAiAnalyzing, setPythonAiAnalyzing] = useState(false);
+  const [analysisSourceLabel, setAnalysisSourceLabel] = useState("");
   const [pageError, setPageError] = useState("");
   const [logsError, setLogsError] = useState("");
   const [detailError, setDetailError] = useState("");
@@ -174,6 +176,7 @@ export default function MainPage() {
     setKeyword("");
     setAnalysis(null);
     setAnalysisError("");
+    setAnalysisSourceLabel("");
     setPageInfo((current) => ({
       ...current,
       skip: 0,
@@ -355,12 +358,48 @@ export default function MainPage() {
         ...response.analysis,
         anomalies: response.analysis?.anomalies || [],
       });
+      setAnalysisSourceLabel("Default AI Service");
       setSelectedLog(response.log || selectedLog);
     } catch (error) {
       setAnalysis(null);
+      setAnalysisSourceLabel("");
       setAnalysisError(error.message || "Unable to analyze the selected log.");
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const handlePythonAiAnalyze = async () => {
+    if (!activeDataset || !selectedLogId) {
+      return;
+    }
+
+    try {
+      setPythonAiAnalyzing(true);
+      setAnalysisError("");
+
+      const params = { dataset: activeDataset };
+      if (userPrompt.trim()) params.prompt = userPrompt.trim();
+
+      const response = await requestJson(
+        `/api/logs/${selectedLogId}/analyze-python-ai`,
+        params,
+        { method: "POST" }
+      );
+
+      setAnalysis({
+        ...response.analysis,
+        anomalies: response.analysis?.anomalies || [],
+        points_of_interest: response.analysis?.points_of_interest || [],
+      });
+      setAnalysisSourceLabel("Python AI Test");
+      setSelectedLog(response.log || selectedLog);
+    } catch (error) {
+      setAnalysis(null);
+      setAnalysisSourceLabel("");
+      setAnalysisError(error.message || "Unable to analyze the selected log with Python AI.");
+    } finally {
+      setPythonAiAnalyzing(false);
     }
   };
 
@@ -608,6 +647,7 @@ export default function MainPage() {
                           setSelectedLogId(log.logId);
                           setSelectedLog(log);
                           setAnalysis(null);
+                          setAnalysisSourceLabel("");
                           setAnalysisError("");
                           setBulkAnalysis(null);
                           setBulkAnalysisError("");
@@ -807,16 +847,26 @@ export default function MainPage() {
               placeholder="Optional: ask a specific question about this log..."
               className="mt-2 w-full resize-none rounded-lg border border-[#cfd8df] bg-[#f9fafb] px-3 py-2 text-sm text-[#1f2a37] placeholder-[#1f2a37]/40 focus:border-[#0e5a74] focus:outline-none focus:ring-2 focus:ring-[#0e5a74]/10"
             />
-            <button
-              type="button"
-              data-testid="analyze-button"
-              onClick={handleAnalyze}
-              disabled={!selectedLogId || analyzing}
-              className="mt-3 w-full rounded-lg px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
-              style={{ background: "linear-gradient(135deg, #0e5a74, #e9782e)" }}
-            >
-              {analyzing ? "Analyzing..." : "Analyze Logs"}
-            </button>
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                data-testid="analyze-button"
+                onClick={handleAnalyze}
+                disabled={!selectedLogId || analyzing || pythonAiAnalyzing}
+                className="w-full rounded-lg px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+                style={{ background: "linear-gradient(135deg, #0e5a74, #e9782e)" }}
+              >
+                {analyzing ? "Analyzing..." : "Analyze Logs"}
+              </button>
+              <button
+                type="button"
+                onClick={handlePythonAiAnalyze}
+                disabled={!selectedLogId || analyzing || pythonAiAnalyzing}
+                className="w-full rounded-lg border border-[#0e5a74] bg-white px-4 py-3 text-sm font-bold text-[#0e5a74] transition-colors hover:bg-[#eef3f6] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {pythonAiAnalyzing ? "Testing Python AI..." : "Test Python AI"}
+              </button>
+            </div>
           </div>
 
           <div className="border-t border-[#d9e1e7]" />
@@ -867,6 +917,11 @@ export default function MainPage() {
                 className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600"
               >
                 {analysisError}
+              </div>
+            )}
+            {analysisSourceLabel && (
+              <div className="rounded-lg border border-[#d9e1e7] bg-[#f4f6f8] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#0e5a74]">
+                Result source: {analysisSourceLabel}
               </div>
             )}
             <div>

@@ -6,7 +6,6 @@ using Project4_AI_Analysis_of_Resource_Logs.Options;
 using Project4_AI_Analysis_of_Resource_Logs.Services;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
-using Project4_AI_Analysis_of_Resource_Logs.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -50,6 +49,7 @@ builder.Services.AddHttpClient<AiAnalysisClient>((serviceProvider, client) =>
 
     client.BaseAddress = baseUri;
 });
+builder.Services.AddHttpClient<PythonAiAnalysisClient>();
 
 // API key authentication
 builder.Services.AddAuthentication("ApiKey")
@@ -324,6 +324,45 @@ logRoutes.MapPost("/{id:int}/analyze", async (
     {
         return Results.Problem(
             title: "AI service unavailable",
+            detail: exception.Message,
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+})
+.RequireAuthorization("AnalystOrAdmin");
+
+// Test-only endpoint â€” sends the selected log to the redesigned python_ai service
+logRoutes.MapPost("/{id:int}/analyze-python-ai", async (
+    int id,
+    string? dataset,
+    string? prompt,
+    HttpContext context,
+    SqlLogRepository repository,
+    PythonAiAnalysisClient pythonAiClient,
+    CancellationToken cancellationToken) =>
+{
+    if (!IsDatasetAllowed(context, dataset))
+        return Results.Forbid();
+
+    try
+    {
+        var log = await repository.GetLogByIdAsync(dataset, id, cancellationToken);
+        if (log is null)
+        {
+            return Results.NotFound(new { message = $"Log with id {id} was not found." });
+        }
+
+        var analysis = await pythonAiClient.AnalyzeAsync(log, prompt, cancellationToken);
+        var response = new LogAnalysisResponse(log, analysis);
+        return Results.Ok(response);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { message = exception.Message });
+    }
+    catch (ServiceUnavailableException exception)
+    {
+        return Results.Problem(
+            title: "Python AI service unavailable",
             detail: exception.Message,
             statusCode: StatusCodes.Status503ServiceUnavailable);
     }

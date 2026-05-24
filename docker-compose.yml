@@ -145,10 +145,13 @@ services:
       MongoSettings__DatabaseName: "resource_logs"
       MongoSettings__CollectionName: "dataset1_logs"
       AiService__BaseUrl: "http://ai-service:8000"
+      PythonAiService__BaseUrl: "http://python-ai:8010"
     depends_on:
       sqlserver:
         condition: service_healthy
       ai-service:
+        condition: service_started
+      python-ai:
         condition: service_started
     ports:
       - "5005:5005"
