@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import Navbar from "../components/Navbar";
 
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL?.trim() || "http://localhost:5005"
@@ -28,13 +29,6 @@ async function requestJson(path, options = {}) {
 
   return payload;
 }
-
-const navItems = [
-  { label: "Dashboard", path: "/main" },
-  { label: "Saved Logs", path: "/saved-logs" },
-  { label: "Analysis", path: "/analysis" },
-  { label: "Settings", path: "/settings" },
-];
 
 export default function SavedLogs() {
   const navigate = useNavigate();
@@ -107,35 +101,7 @@ export default function SavedLogs() {
 
   return (
     <div className="flex flex-col min-h-screen bg-[#f4f6f8] font-sans">
-      {/* Navbar */}
-      <nav
-        className="px-6 py-3 flex items-center justify-between flex-shrink-0"
-        style={{ background: "linear-gradient(135deg, #0e5a74, #0b4a60)" }}
-      >
-        <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded-full bg-[#e9782e]" />
-          <span className="text-white font-bold text-sm">Resource</span>
-          <span className="text-white/80 text-sm">Logs</span>
-        </div>
-        <div className="flex gap-6">
-          {navItems.map((item) => (
-            <span
-              key={item.label}
-              onClick={() => navigate(item.path)}
-              className={`text-sm cursor-pointer font-medium transition-colors ${
-                item.label === "Saved Logs"
-                  ? "text-white border-b-2 border-[#e9782e] pb-0.5"
-                  : "text-white/70 hover:text-white"
-              }`}
-            >
-              {item.label}
-            </span>
-          ))}
-        </div>
-        <div className="w-8 h-8 rounded-full bg-[#e9782e] flex items-center justify-center text-white text-xs font-bold">
-          VS
-        </div>
-      </nav>
+      <Navbar active="Saved Logs" />
 
       {/* Body */}
       <div className="flex flex-1 overflow-hidden">

@@ -13,7 +13,21 @@ import {
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL?.trim() || "http://127.0.0.1:5005"
 ).replace(/\/+$/, "");
-const API_KEY = import.meta.env.VITE_API_KEY?.trim() || "key-admin-full";
+
+// The current user's API key lives in localStorage under "auth_api_key" after
+// a successful /login. The dev fallback (VITE_API_KEY) lets devs hit
+// authenticated endpoints from tools / curl without logging in via the UI.
+const FALLBACK_API_KEY = import.meta.env.VITE_API_KEY?.trim() || "";
+
+function getActiveApiKey() {
+  try {
+    const stored = window.localStorage.getItem("auth_api_key");
+    if (stored) return stored;
+  } catch {
+    // Ignore — fall through to the env fallback.
+  }
+  return FALLBACK_API_KEY;
+}
 
 /**
  * Build full URL with query parameters
@@ -40,8 +54,9 @@ export async function requestJson(path, query = {}, options = {}) {
     ...options.headers,
   };
 
-  if (API_KEY && !headers["X-Api-Key"]) {
-    headers["X-Api-Key"] = API_KEY;
+  const apiKey = getActiveApiKey();
+  if (apiKey && !headers["X-Api-Key"]) {
+    headers["X-Api-Key"] = apiKey;
   }
 
   const url = buildUrl(path, query);
