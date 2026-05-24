@@ -115,6 +115,89 @@ Return valid JSON only — no markdown, no code fences:
     }
 
 
+def analyze_logs_batch(
+    logs: list[dict[str, Any]],
+    user_query: str | None = None,
+) -> dict[str, Any]:
+    """Aggregate-analyse a list of SpeedAdmin logs in one LLM call."""
+    if not logs:
+        return {
+            "summary": "No logs were provided for analysis.",
+            "anomalies": [],
+            "points_of_interest": [],
+            "log_count": 0,
+        }
+
+    lines: list[str] = []
+    for i, log in enumerate(logs[:30], 1):  # cap at 30 to stay within token limits
+        category = log.get("category") or "Unknown"
+        level = log.get("level", "?")
+        message = str(log.get("message") or "").strip()[:120]
+        timestamp = str(log.get("time") or "")[:19]
+        impersonator = log.get("impersonatorMainEntityId")
+        flag = " [IMPERSONATION]" if impersonator else ""
+        lines.append(f"{i}. [{category}] Level {level}: \"{message}\" ({timestamp}){flag}")
+
+    log_list = "\n".join(lines)
+    omitted = f"\n... and {len(logs) - 30} more logs not shown." if len(logs) > 30 else ""
+    user_section = f"\nUser question: {user_query}" if user_query else ""
+
+    prompt = f"""You are analyzing a batch of {len(logs)} SpeedAdmin school-management log entries.
+Write for non-technical school staff — be clear, concise, and avoid jargon.
+
+Logs:
+{log_list}{omitted}{user_section}
+
+Return valid JSON only — no markdown, no code fences:
+{{
+  "summary": "<overall summary of what happened across all these logs, in plain language>",
+  "anomalies": ["<notable issue or suspicious pattern across logs — empty list if none>"],
+  "points_of_interest": ["<cross-log pattern, repeated category, or key observation>"]
+}}"""
+
+    raw = llm.complete(prompt)
+    if raw:
+        cleaned = raw.strip()
+        start = cleaned.find("{")
+        end = cleaned.rfind("}") + 1
+        if start >= 0 and end > start:
+            try:
+                parsed = json.loads(cleaned[start:end])
+                if isinstance(parsed, dict) and "summary" in parsed:
+                    return {
+                        "summary": str(parsed.get("summary", "")),
+                        "anomalies": list(parsed.get("anomalies") or []),
+                        "points_of_interest": list(parsed.get("points_of_interest") or []),
+                        "log_count": len(logs),
+                    }
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+    # Fallback: rule-based aggregation
+    from collections import Counter
+    categories: Counter[str] = Counter(
+        str(l.get("category") or "Unknown") for l in logs
+    )
+    high_severity = sum(1 for l in logs if (l.get("level") or 0) >= 4)
+    impersonations = sum(1 for l in logs if l.get("impersonatorMainEntityId"))
+
+    anomalies: list[str] = []
+    if high_severity:
+        anomalies.append(f"{high_severity} log(s) with severity level 4 or higher.")
+    if impersonations:
+        anomalies.append(f"{impersonations} impersonation event(s) detected.")
+
+    top = ", ".join(f"'{c}' ({n})" for c, n in categories.most_common(3))
+    poi = [f"Top categories: {top}."] if top else []
+
+    return {
+        "summary": f"Batch of {len(logs)} log(s) across {len(categories)} category/categories.",
+        "anomalies": anomalies,
+        "points_of_interest": poi,
+        "log_count": len(logs),
+    }
+
+
 def build_log_from_request(request: AnalyzeRequest) -> dict[str, Any]:
     metadata = request.metadata or {}
     return {

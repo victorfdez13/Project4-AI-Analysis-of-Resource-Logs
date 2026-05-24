@@ -126,6 +126,61 @@ public sealed class AiAnalysisClient
         }
     }
 
+    public async Task<AiBatchAnalyzeResponse> AnalyzeBatchAsync(
+        IReadOnlyList<ResourceLogDetail> logs,
+        string? prompt,
+        CancellationToken cancellationToken)
+    {
+        var payload = new
+        {
+            logs = logs.Select(log => new Dictionary<string, object?>
+            {
+                ["logId"] = log.LogId,
+                ["category"] = log.Category,
+                ["message"] = log.Message,
+                ["time"] = log.Time.ToString("o"),
+                ["level"] = log.Level,
+                ["dataset"] = log.Dataset,
+                ["mainEntityId"] = log.MainEntityId,
+                ["impersonatorMainEntityId"] = log.ImpersonatorMainEntityId,
+                ["sessionId"] = log.SessionId,
+            }).ToList(),
+            prompt,
+        };
+
+        try
+        {
+            using var response = await _httpClient.PostAsJsonAsync(
+                "analyze-batch",
+                payload,
+                cancellationToken: cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                throw new ServiceUnavailableException(
+                    $"AI service returned HTTP {(int)response.StatusCode}: {body}");
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<AiBatchAnalyzeResponse>(
+                cancellationToken: cancellationToken);
+
+            return result ?? throw new ServiceUnavailableException("AI service returned an empty batch response.");
+        }
+        catch (OperationCanceledException)
+        {
+            throw new ServiceUnavailableException("AI service batch request timeout");
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new ServiceUnavailableException($"AI service error: {ex.Message}", ex);
+        }
+        catch (JsonException ex)
+        {
+            throw new ServiceUnavailableException("Invalid response from AI service", ex);
+        }
+    }
+
     public async Task<IReadOnlyList<SavedLogDocument>> ListSavedLogsAsync(
         string dataset,
         int limit,

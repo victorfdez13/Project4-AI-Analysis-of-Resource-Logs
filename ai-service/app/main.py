@@ -8,8 +8,9 @@ from pymongo.errors import PyMongoError
 from app import chat_repository, llm, log_repository, saved_log_repository
 from app.config import settings
 from app.database import init_db
-from app.models import AnalyzeRequest, AnalyzeResponse, ChatRequest, ChatResponse
+from app.models import AnalyzeRequest, AnalyzeResponse, BatchAnalyzeRequest, BatchAnalyzeResponse, ChatRequest, ChatResponse
 from app.service import (
+    analyze_logs_batch,
     analyze_speedadmin_log,
     build_log_from_request,
 )
@@ -185,6 +186,22 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
             status_code=500,
             detail="Error processing analysis request"
         )
+
+
+@app.post("/analyze-batch", response_model=BatchAnalyzeResponse)
+def analyze_batch(request: BatchAnalyzeRequest) -> BatchAnalyzeResponse:
+    """Aggregate-analyse a list of logs in one request."""
+    try:
+        if not request.logs:
+            raise HTTPException(status_code=400, detail="logs list cannot be empty.")
+
+        result = analyze_logs_batch(request.logs, user_query=request.prompt)
+        return BatchAnalyzeResponse(**result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in batch analysis: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error processing batch analysis")
 
 
 @app.get("/logs/{log_id}")

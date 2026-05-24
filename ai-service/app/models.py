@@ -25,6 +25,18 @@ class AnalyzeResponse(BaseModel):
     related_resources: list[str]
 
 
+class BatchAnalyzeRequest(BaseModel):
+    logs: list[dict[str, Any]]
+    prompt: Optional[str] = None
+
+
+class BatchAnalyzeResponse(BaseModel):
+    summary: str
+    anomalies: list[str]
+    points_of_interest: list[str]
+    log_count: int
+
+
 class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     prompt: str

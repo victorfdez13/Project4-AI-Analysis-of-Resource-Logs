@@ -240,6 +240,47 @@ logRoutes.MapGet("/summary", async (
     }
 }).RequireAuthorization("ViewerAccess");
 
+// Batch-analyze endpoint — analyzes multiple selected logs and returns an aggregated summary
+logRoutes.MapPost("/analyze-batch", async (
+    LogsBatchRequest body,
+    HttpContext context,
+    SqlLogRepository repository,
+    AiAnalysisClient aiClient,
+    CancellationToken cancellationToken) =>
+{
+    if (!IsDatasetAllowed(context, body.Dataset))
+        return Results.Forbid();
+
+    if (body.LogIds is null || body.LogIds.Count == 0)
+        return Results.BadRequest(new { message = "logIds cannot be empty." });
+
+    if (body.LogIds.Count > 50)
+        return Results.BadRequest(new { message = "At most 50 logs can be analyzed at once." });
+
+    try
+    {
+        var logTasks = body.LogIds.Select(id =>
+            repository.GetLogByIdAsync(body.Dataset, id, cancellationToken));
+
+        var fetched = await Task.WhenAll(logTasks);
+        var logs = fetched.Where(l => l is not null).Select(l => l!).ToList();
+
+        if (logs.Count == 0)
+            return Results.NotFound(new { message = "None of the requested logs were found." });
+
+        var result = await aiClient.AnalyzeBatchAsync(logs, body.Prompt, cancellationToken);
+        return Results.Ok(result);
+    }
+    catch (ServiceUnavailableException ex)
+    {
+        return Results.Problem(
+            title: "AI service unavailable",
+            detail: ex.Message,
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+})
+.RequireAuthorization("AnalystOrAdmin");
+
 // Analyze endpoint — runs AI analysis and saves result to MongoDB
 logRoutes.MapPost("/{id:int}/analyze", async (
     int id,

@@ -145,6 +145,10 @@ export default function MainPage() {
   const [analysis, setAnalysis] = useState(null);
   const [analysisError, setAnalysisError] = useState("");
   const [userPrompt, setUserPrompt] = useState("");
+  const [selectedLogIds, setSelectedLogIds] = useState(new Set());
+  const [bulkAnalysis, setBulkAnalysis] = useState(null);
+  const [bulkAnalyzing, setBulkAnalyzing] = useState(false);
+  const [bulkAnalysisError, setBulkAnalysisError] = useState("");
   const [pageInfo, setPageInfo] = useState({
     skip: 0,
     take: PAGE_SIZE,
@@ -360,6 +364,30 @@ export default function MainPage() {
     }
   };
 
+  const handleBulkAnalyze = async () => {
+    if (!activeDataset || selectedLogIds.size === 0) return;
+    try {
+      setBulkAnalyzing(true);
+      setBulkAnalysisError("");
+      setBulkAnalysis(null);
+      const body = {
+        dataset: activeDataset,
+        logIds: [...selectedLogIds],
+        ...(userPrompt.trim() ? { prompt: userPrompt.trim() } : {}),
+      };
+      const result = await requestJson(
+        "/api/logs/analyze-batch",
+        {},
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      );
+      setBulkAnalysis(result);
+    } catch (error) {
+      setBulkAnalysisError(error.message || "Unable to analyze selected logs.");
+    } finally {
+      setBulkAnalyzing(false);
+    }
+  };
+
   const pageCount = Math.max(1, Math.ceil(pageInfo.totalCount / pageInfo.take));
   const currentPage = Math.floor(pageInfo.skip / pageInfo.take) + 1;
   const infoCount = countByLevel(logs, 2);
@@ -530,14 +558,38 @@ export default function MainPage() {
 
         <section className="flex flex-col gap-5">
           <div className="overflow-hidden rounded-[18px] border border-[#d9e1e7] bg-white shadow-[0_4px_14px_rgba(14,90,116,0.08)]">
-            <div className="border-b border-[#d9e1e7] bg-[#fbfcfd] px-6 py-5">
+            <div className="border-b border-[#d9e1e7] bg-[#fbfcfd] px-6 py-5 flex items-center justify-between">
               <h2 className="text-xl font-semibold text-[#0e5a74]">Logs</h2>
+              {selectedLogIds.size > 0 && (
+                <button
+                  onClick={handleBulkAnalyze}
+                  disabled={bulkAnalyzing}
+                  className="rounded-lg px-4 py-2 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  style={{ background: "linear-gradient(135deg, #0e5a74, #e9782e)" }}
+                >
+                  {bulkAnalyzing ? "Analyzing..." : `Analyze Selected (${selectedLogIds.size})`}
+                </button>
+              )}
             </div>
             <div className="px-6 py-5">
               <div className="overflow-hidden rounded-xl border border-[#d9e1e7]">
                 <table className="w-full border-collapse">
                   <thead>
                     <tr className="bg-[#eef3f6]">
+                      <th className="w-10 px-3 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          title="Select all visible logs"
+                          checked={logs.length > 0 && selectedLogIds.size === logs.length}
+                          ref={(el) => {
+                            if (el) el.indeterminate = selectedLogIds.size > 0 && selectedLogIds.size < logs.length;
+                          }}
+                          onChange={(e) =>
+                            setSelectedLogIds(e.target.checked ? new Set(logs.map((l) => l.logId)) : new Set())
+                          }
+                          className="accent-[#0e5a74]"
+                        />
+                      </th>
                       {["Time", "Resource", "Severity", "Message"].map((header) => (
                         <th
                           key={header}
@@ -557,6 +609,8 @@ export default function MainPage() {
                           setSelectedLog(log);
                           setAnalysis(null);
                           setAnalysisError("");
+                          setBulkAnalysis(null);
+                          setBulkAnalysisError("");
                         }}
                         className={`cursor-pointer border-t border-[#e8edf1] transition-colors ${
                           selectedLogId === log.logId
@@ -564,6 +618,20 @@ export default function MainPage() {
                             : "hover:bg-[#f7fafc]"
                         }`}
                       >
+                        <td className="w-10 px-3 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedLogIds.has(log.logId)}
+                            onChange={(e) =>
+                              setSelectedLogIds((prev) => {
+                                const next = new Set(prev);
+                                e.target.checked ? next.add(log.logId) : next.delete(log.logId);
+                                return next;
+                              })
+                            }
+                            className="accent-[#0e5a74]"
+                          />
+                        </td>
                         <td className="px-5 py-4 text-sm text-[#1f2a37]/75">
                           {formatDateTime(log.time)}
                         </td>
@@ -585,7 +653,7 @@ export default function MainPage() {
 
                     {!loadingLogs && logs.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="px-5 py-6 text-center text-sm text-[#1f2a37]/40" data-testid="empty-logs">
+                        <td colSpan={5} className="px-5 py-6 text-center text-sm text-[#1f2a37]/40" data-testid="empty-logs">
                           {hasActiveFilters ? (
                             <>
                               No logs match your current filters.{" "}
@@ -754,6 +822,45 @@ export default function MainPage() {
           <div className="border-t border-[#d9e1e7]" />
 
           <div className="flex flex-col gap-5 px-6 py-5">
+            {bulkAnalysisError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                {bulkAnalysisError}
+              </div>
+            )}
+
+            {bulkAnalysis && (
+              <div className="rounded-lg border border-[#d9e1e7] bg-[#f4f6f8] px-4 py-4 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[#0e5a74]">
+                    Bulk Analysis — {bulkAnalysis.logCount} log(s)
+                  </span>
+                  <button
+                    onClick={() => { setBulkAnalysis(null); setBulkAnalysisError(""); }}
+                    className="text-[#1f2a37]/30 hover:text-[#1f2a37]/60 text-sm"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <p className="text-sm text-[#1f2a37]/80 leading-relaxed">{bulkAnalysis.summary}</p>
+                {bulkAnalysis.anomalies?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-[#0e5a74] mb-1">Anomalies</p>
+                    <ul className="list-disc pl-4 text-sm text-[#1f2a37]/70 space-y-0.5">
+                      {bulkAnalysis.anomalies.map((a, i) => <li key={i}>{a}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {bulkAnalysis.pointsOfInterest?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-[#0e5a74] mb-1">Points of Interest</p>
+                    <ul className="list-disc pl-4 text-sm text-[#1f2a37]/70 space-y-0.5">
+                      {bulkAnalysis.pointsOfInterest.map((p, i) => <li key={i}>{p}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
             {analysisError && (
               <div
                 data-testid="analysis-error"
