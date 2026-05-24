@@ -57,6 +57,7 @@ public sealed class AiAnalysisClient
 
     public async Task<AiAnalyzeResponse> AnalyzeAsync(
         ResourceLogDetail log,
+        string? prompt,
         CancellationToken cancellationToken)
     {
         if (log == null)
@@ -78,7 +79,8 @@ public sealed class AiAnalysisClient
                 ["mainEntityId"] = log.MainEntityId,
                 ["impersonatorMainEntityId"] = log.ImpersonatorMainEntityId,
                 ["entities"] = log.Entities,
-                ["changes"] = log.Changes
+                ["changes"] = log.Changes,
+                ["prompt"] = prompt
             });
 
         try

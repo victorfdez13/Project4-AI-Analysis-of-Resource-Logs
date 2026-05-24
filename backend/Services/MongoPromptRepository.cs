@@ -21,12 +21,14 @@ public sealed class MongoPromptRepository
         int logId,
         ResourceLogDetail log,
         AiAnalyzeResponse analysis,
+        string? prompt,
         CancellationToken cancellationToken)
     {
         var document = new BsonDocument
         {
             ["dataset"] = dataset,
             ["logId"] = logId,
+            ["prompt"] = prompt ?? "",
             ["analyzedAt"] = DateTimeOffset.UtcNow.ToString("o"),
             ["originalLog"] = new BsonDocument
             {
@@ -43,11 +45,11 @@ public sealed class MongoPromptRepository
                 ["summary"] = analysis.Summary,
                 ["explanation"] = analysis.Explanation,
                 ["anomalies"] = new BsonArray(analysis.Anomalies),
+                ["pointsOfInterest"] = new BsonArray(analysis.PointsOfInterest ?? []),
                 ["relatedResources"] = new BsonArray(analysis.RelatedResources),
             }
         };
 
-        // Upsert — replace existing result for same dataset + logId
         var filter = Builders<BsonDocument>.Filter.And(
             Builders<BsonDocument>.Filter.Eq("dataset", dataset),
             Builders<BsonDocument>.Filter.Eq("logId", logId));
@@ -75,19 +77,7 @@ public sealed class MongoPromptRepository
         if (document is null)
             return null;
 
-        var analysisDoc = document["analysis"].AsBsonDocument;
-        var analysis = new AiAnalyzeResponse(
-            analysisDoc["summary"].AsString,
-            analysisDoc["explanation"].AsString,
-            analysisDoc["anomalies"].AsBsonArray.Select(x => x.AsString).ToList(),
-            analysisDoc["relatedResources"].AsBsonArray.Select(x => x.AsString).ToList());
-
-        return new SavedAnalysisResult(
-            document["_id"].ToString()!,
-            dataset,
-            logId,
-            document["analyzedAt"].AsString,
-            analysis);
+        return MapDocument(document);
     }
 
     public async Task<IReadOnlyList<SavedAnalysisResult>> ListAnalysesAsync(
@@ -103,21 +93,34 @@ public sealed class MongoPromptRepository
             .Limit(limit)
             .ToListAsync(cancellationToken);
 
-        return documents.Select(document =>
-        {
-            var analysisDoc = document["analysis"].AsBsonDocument;
-            var analysis = new AiAnalyzeResponse(
-                analysisDoc["summary"].AsString,
-                analysisDoc["explanation"].AsString,
-                analysisDoc["anomalies"].AsBsonArray.Select(x => x.AsString).ToList(),
-                analysisDoc["relatedResources"].AsBsonArray.Select(x => x.AsString).ToList());
+        return documents.Select(MapDocument).ToList();
+    }
 
-            return new SavedAnalysisResult(
-                document["_id"].ToString()!,
-                dataset,
-                document["logId"].ToInt32(),
-                document["analyzedAt"].AsString,
-                analysis);
-        }).ToList();
+    private static SavedAnalysisResult MapDocument(BsonDocument document)
+    {
+        var analysisDoc = document["analysis"].AsBsonDocument;
+
+        var pointsOfInterest = analysisDoc.Contains("pointsOfInterest")
+            ? analysisDoc["pointsOfInterest"].AsBsonArray.Select(x => x.AsString).ToList()
+            : (IReadOnlyList<string>)[];
+
+        var analysis = new AiAnalyzeResponse(
+            analysisDoc["summary"].AsString,
+            analysisDoc["explanation"].AsString,
+            analysisDoc["anomalies"].AsBsonArray.Select(x => x.AsString).ToList(),
+            pointsOfInterest,
+            analysisDoc["relatedResources"].AsBsonArray.Select(x => x.AsString).ToList());
+
+        var prompt = document.Contains("prompt") && !document["prompt"].IsBsonNull
+            ? document["prompt"].AsString
+            : null;
+
+        return new SavedAnalysisResult(
+            document["_id"].ToString()!,
+            document["dataset"].AsString,
+            document["logId"].ToInt32(),
+            document["analyzedAt"].AsString,
+            string.IsNullOrEmpty(prompt) ? null : prompt,
+            analysis);
     }
 }

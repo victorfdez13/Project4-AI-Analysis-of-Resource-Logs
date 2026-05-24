@@ -228,6 +228,12 @@ export default function SavedLogs() {
               </div>
 
               <div className="px-6 py-5 flex flex-col gap-5">
+                {selected.prompt && (
+                  <div className="rounded-lg border border-[#d9e1e7] bg-[#f4f6f8] px-4 py-3">
+                    <h4 className="text-xs font-semibold text-[#0e5a74]/70 uppercase tracking-wide mb-1">Prompt used</h4>
+                    <p className="text-sm text-[#1f2a37]/70 italic">{selected.prompt}</p>
+                  </div>
+                )}
                 <div>
                   <h4 className="text-sm font-semibold text-[#0e5a74] mb-1">Summary</h4>
                   <p className="text-sm text-[#1f2a37]/70 leading-relaxed">

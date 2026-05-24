@@ -244,6 +244,7 @@ logRoutes.MapGet("/summary", async (
 logRoutes.MapPost("/{id:int}/analyze", async (
     int id,
     string? dataset,
+    string? prompt,
     HttpContext context,
     SqlLogRepository repository,
     AiAnalysisClient aiClient,
@@ -261,14 +262,14 @@ logRoutes.MapPost("/{id:int}/analyze", async (
             return Results.NotFound(new { message = $"Log with id {id} was not found." });
         }
 
-        var analysis = await aiClient.AnalyzeAsync(log, cancellationToken);
+        var analysis = await aiClient.AnalyzeAsync(log, prompt, cancellationToken);
 
-        // Save prompt result to MongoDB
         await mongoRepository.SaveAnalysisAsync(
             log.Dataset,
             log.LogId,
             log,
             analysis,
+            prompt,
             cancellationToken);
 
         var response = new LogAnalysisResponse(log, analysis);

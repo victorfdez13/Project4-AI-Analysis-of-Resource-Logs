@@ -144,6 +144,7 @@ export default function MainPage() {
   const [selectedLog, setSelectedLog] = useState(null);
   const [analysis, setAnalysis] = useState(null);
   const [analysisError, setAnalysisError] = useState("");
+  const [userPrompt, setUserPrompt] = useState("");
   const [pageInfo, setPageInfo] = useState({
     skip: 0,
     take: PAGE_SIZE,
@@ -337,9 +338,12 @@ export default function MainPage() {
       setAnalyzing(true);
       setAnalysisError("");
 
+      const params = { dataset: activeDataset };
+      if (userPrompt.trim()) params.prompt = userPrompt.trim();
+
       const response = await requestJson(
         `/api/logs/${selectedLogId}/analyze`,
-        { dataset: activeDataset },
+        params,
         { method: "POST" }
       );
 
@@ -722,11 +726,18 @@ export default function MainPage() {
           </div>
           <div className="px-6 py-5">
             <textarea
-              rows={5}
+              rows={4}
               readOnly
               value={selectedLog?.message || ""}
               placeholder="Select a log to analyze..."
               className="w-full resize-none rounded-lg border border-[#cfd8df] bg-white px-3 py-3 text-sm text-[#1f2a37] focus:border-[#0e5a74] focus:outline-none focus:ring-2 focus:ring-[#0e5a74]/10"
+            />
+            <textarea
+              rows={2}
+              value={userPrompt}
+              onChange={(e) => setUserPrompt(e.target.value)}
+              placeholder="Optional: ask a specific question about this log..."
+              className="mt-2 w-full resize-none rounded-lg border border-[#cfd8df] bg-[#f9fafb] px-3 py-2 text-sm text-[#1f2a37] placeholder-[#1f2a37]/40 focus:border-[#0e5a74] focus:outline-none focus:ring-2 focus:ring-[#0e5a74]/10"
             />
             <button
               type="button"

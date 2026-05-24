@@ -92,4 +92,5 @@ public sealed record SavedAnalysisResult(
     string Dataset,
     int LogId,
     string AnalyzedAt,
+    string? Prompt,
     AiAnalyzeResponse Analysis);
