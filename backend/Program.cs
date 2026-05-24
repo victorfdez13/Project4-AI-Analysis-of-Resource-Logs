@@ -28,6 +28,7 @@ builder.Services.AddSingleton<SqlLogRepository>();
 builder.Services.AddSingleton<DatabaseHealthService>();
 builder.Services.AddSingleton<MongoPromptRepository>();
 builder.Services.AddSingleton<UserStore>();
+builder.Services.AddSingleton<DatasetStore>();
 builder.Services.AddSingleton<IMongoClient>(_ =>
 {
     var connectionString = builder.Configuration.GetConnectionString("MongoDb")
@@ -257,6 +258,21 @@ userRoutes.MapDelete("/{username}", (string username, UserStore userStore, HttpC
     return userStore.Delete(username)
         ? Results.NoContent()
         : Results.NotFound(new { message = $"User '{username}' not found." });
+});
+
+// Admin-only dataset registration. The frontend uses this to add a new
+// dataset by name; the underlying SQL Server database is assumed to
+// already exist.
+var datasetRoutes = app.MapGroup("/api/datasets").RequireAuthorization("AdminOnly");
+
+datasetRoutes.MapGet("/", (DatasetStore datasetStore) =>
+    Results.Ok(new { datasets = datasetStore.All() }));
+
+datasetRoutes.MapPost("/", (RegisterDatasetRequest request, DatasetStore datasetStore) =>
+{
+    var error = datasetStore.Add(request.Name ?? string.Empty);
+    if (error is not null) return Results.BadRequest(new { message = error });
+    return Results.Created($"/api/datasets/{request.Name}", new { datasets = datasetStore.All() });
 });
 
 // All /api/logs routes require authentication
@@ -641,6 +657,8 @@ public class ApiKeyAuthHandler : AuthenticationHandler<AuthenticationSchemeOptio
 }
 
 public sealed record LoginRequest(string Username, string Password);
+
+public sealed record RegisterDatasetRequest(string? Name);
 
 public sealed record CreateUserRequest(
     string Username,

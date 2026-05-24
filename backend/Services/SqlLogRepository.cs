@@ -1,38 +1,28 @@
 using System.Globalization;
 using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Options;
 using Project4_AI_Analysis_of_Resource_Logs.Contracts;
-using Project4_AI_Analysis_of_Resource_Logs.Options;
 
 namespace Project4_AI_Analysis_of_Resource_Logs.Services;
 
 public sealed class SqlLogRepository
 {
     private readonly string _connectionString;
-    private readonly IReadOnlyDictionary<string, string> _datasets;
-    private readonly string _defaultDataset;
+    private readonly DatasetStore _datasetStore;
 
-    public SqlLogRepository(IConfiguration configuration, IOptions<BackendOptions> options)
+    public SqlLogRepository(IConfiguration configuration, DatasetStore datasetStore)
     {
         _connectionString = configuration.GetConnectionString("SqlServer")
             ?? throw new InvalidOperationException("Missing SQL Server connection string.");
 
-        _datasets = options.Value.SqlServerDatasets
-            .Where(dataset => !string.IsNullOrWhiteSpace(dataset))
-            .Select(dataset => dataset.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(dataset => dataset, dataset => dataset, StringComparer.OrdinalIgnoreCase);
+        _datasetStore = datasetStore;
 
-        if (_datasets.Count == 0)
+        if (_datasetStore.All().Count == 0)
         {
             throw new InvalidOperationException("At least one SQL dataset must be configured.");
         }
-
-        _defaultDataset = _datasets.Values.First();
     }
 
-    public IReadOnlyList<string> GetConfiguredDatasets() =>
-        _datasets.Values.OrderBy(dataset => dataset, StringComparer.OrdinalIgnoreCase).ToArray();
+    public IReadOnlyList<string> GetConfiguredDatasets() => _datasetStore.All();
 
     public async Task<SqlServerHealth> CheckHealthAsync(CancellationToken cancellationToken)
     {
@@ -43,7 +33,7 @@ public sealed class SqlLogRepository
             await using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync(cancellationToken);
 
-            foreach (var dataset in _datasets.Values)
+            foreach (var dataset in _datasetStore.All())
             {
                 var isAvailable = await DatasetExistsAsync(connection, dataset, cancellationToken);
                 datasetResults.Add(new DatasetHealth(
@@ -61,7 +51,7 @@ public sealed class SqlLogRepository
         }
         catch (Exception exception)
         {
-            datasetResults.AddRange(_datasets.Values.Select(dataset =>
+            datasetResults.AddRange(_datasetStore.All().Select(dataset =>
                 new DatasetHealth(dataset, false, exception.Message)));
 
             return new SqlServerHealth(
@@ -335,17 +325,21 @@ ORDER BY l.Level ASC;
 
     private string ResolveDataset(string? dataset)
     {
+        var allDatasets = _datasetStore.All();
         var requestedDataset = string.IsNullOrWhiteSpace(dataset)
-            ? _defaultDataset
+            ? allDatasets.FirstOrDefault()
             : dataset.Trim();
 
-        if (_datasets.TryGetValue(requestedDataset, out var resolvedDataset))
+        if (requestedDataset is null)
         {
-            return resolvedDataset;
+            throw new InvalidOperationException("No datasets are configured.");
         }
 
+        var resolved = _datasetStore.ResolveCanonical(requestedDataset);
+        if (resolved is not null) return resolved;
+
         throw new ArgumentException(
-            $"Unsupported dataset '{requestedDataset}'. Allowed values: {string.Join(", ", GetConfiguredDatasets())}.");
+            $"Unsupported dataset '{requestedDataset}'. Allowed values: {string.Join(", ", allDatasets)}.");
     }
 
     private static async Task<bool> DatasetExistsAsync(
