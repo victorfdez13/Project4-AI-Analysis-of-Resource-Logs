@@ -34,13 +34,16 @@ export default function AdminUsers() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
 
+  const [newDatasetName, setNewDatasetName] = useState("");
+  const [datasetBusy, setDatasetBusy] = useState(false);
+
   async function reload() {
     setBusy(true);
     setError("");
     try {
       const [userResp, dsResp] = await Promise.all([
         getJson("/api/users"),
-        getJson("/api/logs/datasets"),
+        getJson("/api/datasets"),
       ]);
       setUsers(userResp?.users || []);
       setDatasets(dsResp?.datasets || []);
@@ -54,7 +57,7 @@ export default function AdminUsers() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getJson("/api/users"), getJson("/api/logs/datasets")])
+    Promise.all([getJson("/api/users"), getJson("/api/datasets")])
       .then(([userResp, dsResp]) => {
         if (cancelled) return;
         setUsers(userResp?.users || []);
@@ -72,6 +75,27 @@ export default function AdminUsers() {
       cancelled = true;
     };
   }, []);
+
+  async function handleAddDataset(e) {
+    e.preventDefault();
+    const name = newDatasetName.trim();
+    if (!name) {
+      setError("Dataset name is required.");
+      return;
+    }
+    try {
+      setDatasetBusy(true);
+      setError("");
+      const resp = await postJson("/api/datasets", { name });
+      if (resp?.datasets) setDatasets(resp.datasets);
+      setNewDatasetName("");
+      flash(`Dataset '${name}' registered.`);
+    } catch (err) {
+      setError(err?.message || "Failed to register dataset.");
+    } finally {
+      setDatasetBusy(false);
+    }
+  }
 
   function flash(msg) {
     setSuccessMsg(msg);
@@ -292,6 +316,52 @@ export default function AdminUsers() {
               </button>
             </form>
           )}
+
+          {/* Dataset registration */}
+          <div className="mb-6 rounded-xl border border-[#d9e1e7] bg-white p-5 shadow-sm">
+            <div className="flex items-end justify-between gap-4 flex-wrap">
+              <div>
+                <h2 className="text-[#0e5a74] font-semibold">Datasets</h2>
+                <p className="text-[#1f2a37]/60 text-xs mt-1">
+                  Register an existing SQL Server database so it shows up in dataset pickers.
+                  The database must already exist in SQL Server.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 mt-4 mb-4">
+              {datasets.length === 0 ? (
+                <p className="text-[#1f2a37]/40 text-sm">No datasets registered yet.</p>
+              ) : (
+                datasets.map((d) => (
+                  <span
+                    key={d}
+                    className="px-3 py-1 rounded-full text-xs font-semibold bg-[#eef3f6] text-[#0e5a74] border border-[#d9e1e7]"
+                  >
+                    {d}
+                  </span>
+                ))
+              )}
+            </div>
+
+            <form onSubmit={handleAddDataset} className="flex gap-2 items-stretch flex-wrap">
+              <input
+                type="text"
+                value={newDatasetName}
+                onChange={(e) => setNewDatasetName(e.target.value)}
+                placeholder="New dataset name (e.g. DATASET3)"
+                className="flex-1 min-w-[200px] rounded-lg border border-[#cfd8df] px-3 py-2 text-sm focus:border-[#0e5a74] focus:outline-none"
+                disabled={datasetBusy}
+              />
+              <button
+                type="submit"
+                disabled={datasetBusy}
+                className="px-4 py-2 rounded-lg bg-[#e9782e] text-white text-sm font-semibold hover:bg-[#d4691f] disabled:opacity-50 transition-colors"
+              >
+                {datasetBusy ? "Adding…" : "Add dataset"}
+              </button>
+            </form>
+          </div>
 
           <div className="rounded-xl border border-[#d9e1e7] bg-white overflow-hidden shadow-sm">
             {loading ? (
