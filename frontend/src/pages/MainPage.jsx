@@ -850,11 +850,11 @@ export default function MainPage() {
                     </ul>
                   </div>
                 )}
-                {bulkAnalysis.pointsOfInterest?.length > 0 && (
+                {bulkAnalysis.points_of_interest?.length > 0 && (
                   <div>
                     <p className="text-xs font-semibold text-[#0e5a74] mb-1">Points of Interest</p>
                     <ul className="list-disc pl-4 text-sm text-[#1f2a37]/70 space-y-0.5">
-                      {bulkAnalysis.pointsOfInterest.map((p, i) => <li key={i}>{p}</li>)}
+                      {bulkAnalysis.points_of_interest.map((p, i) => <li key={i}>{p}</li>)}
                     </ul>
                   </div>
                 )}
