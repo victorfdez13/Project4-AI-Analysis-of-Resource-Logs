@@ -1,22 +1,13 @@
-"""LLM backend with three-tier fallback:
-1. OpenAI (if LLM_API_KEY is set and has credits)
-2. Ollama (free local model — install from ollama.com, run: ollama run llama3.2)
-3. Smart mock (works with zero setup, good enough for a demo)
+"""LLM backend with two-tier fallback:
+1. Ollama (free local model — install from ollama.com, run: ollama run llama3.2)
+2. Smart mock (works with zero setup, good enough for a demo)
 """
 
 import re
 from openai import OpenAI
 from app.config import settings
 
-_openai_client: OpenAI | None = None
 _ollama_client: OpenAI | None = None
-
-
-def _get_openai() -> OpenAI:
-    global _openai_client
-    if _openai_client is None:
-        _openai_client = OpenAI(api_key=settings.LLM_API_KEY)
-    return _openai_client
 
 
 def _get_ollama() -> OpenAI:
@@ -32,8 +23,10 @@ def _get_ollama() -> OpenAI:
 
 def _ollama_available() -> bool:
     import urllib.request
+    # Derive host from the configured base URL so it works both locally and inside Docker
+    base = settings.OLLAMA_BASE_URL.split("/v1")[0]
     try:
-        urllib.request.urlopen("http://localhost:11434", timeout=1)
+        urllib.request.urlopen(base, timeout=1)
         return True
     except Exception:
         return False
@@ -142,22 +135,15 @@ def _mock_response(messages: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 
 def complete_messages(messages: list[dict]) -> str:
-    """Try OpenAI → Ollama → mock. Never raises."""
-    # 1. OpenAI
-    if settings.LLM_API_KEY:
-        try:
-            return _call(_get_openai(), settings.MODEL_NAME, messages)
-        except Exception:
-            pass
-
-    # 2. Ollama (free local model)
+    """Try Ollama → mock. Never raises."""
+    # 1. Ollama (free local model)
     if _ollama_available():
         try:
             return _call(_get_ollama(), settings.OLLAMA_MODEL, messages)
         except Exception:
             pass
 
-    # 3. Smart mock
+    # 2. Smart mock
     return _mock_response(messages)
 
 

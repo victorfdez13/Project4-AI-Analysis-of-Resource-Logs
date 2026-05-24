@@ -79,6 +79,8 @@ services:
       MONGO_SAVEDLOGS_DATABASE_NAME: "savedlogs"
       MONGO_SAVEDLOGS_COLLECTION: "saved_logs"
       SQLITE_DB_PATH: "/data/chat_history.db"
+      OLLAMA_BASE_URL: "http://host.docker.internal:11434/v1"
+      OLLAMA_MODEL: "llama3.2"
       CORS_ALLOW_ORIGINS: ""
     volumes:
       - ai_service_data:/data
@@ -87,6 +89,29 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+    networks:
+      - backend-net
+
+  python-ai:
+    build:
+      context: ./python_ai
+      dockerfile: Dockerfile
+    container_name: project4-python-ai
+    environment:
+      MONGO_URI: "mongodb://admin:mongodb123@mongo:27017"
+      MONGO_DATABASE_NAME: "resource_logs"
+      MONGO_DATASET1_COLLECTION: "dataset1_logs"
+      MONGO_DATASET2_COLLECTION: "dataset2_logs"
+      EXPLANATION_BACKEND: "remote"
+      REMOTE_LLM_BASE_URL: "http://host.docker.internal:11434/v1"
+      REMOTE_LLM_MODEL: "llama3.2"
+      REMOTE_LLM_API_KEY: ""
+      CORS_ALLOW_ORIGINS: ""
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "8010:8010"
     networks:
       - backend-net
 
