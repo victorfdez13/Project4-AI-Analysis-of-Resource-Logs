@@ -72,4 +72,9 @@ public class ServiceUnavailableException : ApplicationException
         : base(message, 503)
     {
     }
+
+    public ServiceUnavailableException(string message, Exception innerException)
+        : base(message, 503)
+    {
+    }
 }

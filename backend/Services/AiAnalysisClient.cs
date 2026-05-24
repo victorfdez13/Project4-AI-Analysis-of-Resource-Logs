@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Project4_AI_Analysis_of_Resource_Logs.Contracts;
 using Project4_AI_Analysis_of_Resource_Logs.Options;
@@ -235,47 +236,5 @@ public sealed class AiAnalysisClient
             _logger.LogError(ex, "Failed to parse saved log response for dataset={Dataset}, logId={LogId}", dataset, logId);
             throw new ServiceUnavailableException("Invalid response from service", ex);
         }
-    }
-}
-        int limit,
-        CancellationToken cancellationToken)
-    {
-        var query = $"saved-logs?dataset={Uri.EscapeDataString(dataset)}&limit={limit}";
-        using var response = await _httpClient.GetAsync(query, cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new HttpRequestException(
-                $"AI service returned HTTP {(int)response.StatusCode}: {responseBody}");
-        }
-
-        var payload = await response.Content.ReadFromJsonAsync<List<SavedLogDocument>>(
-            cancellationToken: cancellationToken);
-        return payload ?? [];
-    }
-
-    public async Task<SavedLogDocument?> GetSavedLogAsync(
-        string dataset,
-        int logId,
-        CancellationToken cancellationToken)
-    {
-        var query = $"saved-logs/{logId}?dataset={Uri.EscapeDataString(dataset)}";
-        using var response = await _httpClient.GetAsync(query, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.NotFound)
-        {
-            return null;
-        }
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new HttpRequestException(
-                $"AI service returned HTTP {(int)response.StatusCode}: {responseBody}");
-        }
-
-        return await response.Content.ReadFromJsonAsync<SavedLogDocument>(
-            cancellationToken: cancellationToken);
     }
 }
