@@ -361,6 +361,7 @@ export default function MainPage() {
   const infoCount = countByLevel(logs, 2);
   const warningCount = countByLevel(logs, 3);
   const errorCount = countByLevel(logs, 4) + countByLevel(logs, 5);
+  const hasActiveFilters = severity !== "" || resource.trim() !== "" || keyword.trim() !== "";
 
   return (
     <div className="min-h-screen bg-[#f4f6f8] font-sans text-[#1f2a37]">
@@ -580,8 +581,17 @@ export default function MainPage() {
 
                     {!loadingLogs && logs.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="px-5 py-6 text-center text-sm text-[#1f2a37]/40">
-                          No logs to display.
+                        <td colSpan={4} className="px-5 py-6 text-center text-sm text-[#1f2a37]/40" data-testid="empty-logs">
+                          {hasActiveFilters ? (
+                            <>
+                              No logs match your current filters.{" "}
+                              <button onClick={clearFilters} className="underline text-[#0e5a74]">
+                                Clear filters
+                              </button>
+                            </>
+                          ) : (
+                            "No logs found in this dataset."
+                          )}
                         </td>
                       </tr>
                     )}
@@ -677,7 +687,7 @@ export default function MainPage() {
                       </tr>
                     ) : (
                       <tr>
-                        <td colSpan={5} className="px-5 py-6 text-center text-sm text-[#1f2a37]/40">
+                        <td colSpan={5} className="px-5 py-6 text-center text-sm text-[#1f2a37]/40" data-testid="no-log-selected">
                           Select a log above to view details.
                         </td>
                       </tr>
@@ -720,6 +730,7 @@ export default function MainPage() {
             />
             <button
               type="button"
+              data-testid="analyze-button"
               onClick={handleAnalyze}
               disabled={!selectedLogId || analyzing}
               className="mt-3 w-full rounded-lg px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
@@ -732,10 +743,18 @@ export default function MainPage() {
           <div className="border-t border-[#d9e1e7]" />
 
           <div className="flex flex-col gap-5 px-6 py-5">
+            {analysisError && (
+              <div
+                data-testid="analysis-error"
+                className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600"
+              >
+                {analysisError}
+              </div>
+            )}
             <div>
               <h3 className="mb-2 text-lg font-semibold text-[#0e5a74]">Summary:</h3>
-              <p className="text-sm leading-relaxed text-[#1f2a37]/50">
-                {analysis?.summary || analysisError || "-"}
+              <p data-testid="analysis-summary" className="text-sm leading-relaxed text-[#1f2a37]/50">
+                {analysis?.summary || "-"}
               </p>
             </div>
             <div>
