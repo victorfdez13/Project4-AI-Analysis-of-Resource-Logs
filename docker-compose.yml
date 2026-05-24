@@ -89,6 +89,7 @@ services:
       MONGO_SAVEDLOGS_DATABASE_NAME: "savedlogs"
       MONGO_SAVEDLOGS_COLLECTION: "saved_logs"
       SQLITE_DB_PATH: "/data/chat_history.db"
+      LLM_PROVIDER: "ollama"
       OLLAMA_BASE_URL: "http://ollama:11434/v1"
       OLLAMA_MODEL: "llama3.2"
       CORS_ALLOW_ORIGINS: ""

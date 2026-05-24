@@ -32,9 +32,17 @@ class Settings:
 
     SQLITE_DB_PATH: str = os.getenv("SQLITE_DB_PATH", "data/chat_history.db")
 
-    # Ollama — free local LLM (no API key needed)
+    # LLM provider selection: "ollama" | "generic" | "mock"
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama")
+
+    # Ollama provider (used when LLM_PROVIDER=ollama)
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434/v1")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.2")
+
+    # Generic OpenAI-compatible provider (used when LLM_PROVIDER=generic)
+    LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "")
+    LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
 
     CORS_ALLOW_ORIGINS: list[str] = [
         origin.strip()
