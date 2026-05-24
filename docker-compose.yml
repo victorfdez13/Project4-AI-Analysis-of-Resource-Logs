@@ -66,6 +66,16 @@ services:
     networks:
       - backend-net
 
+  ollama:
+    image: ollama/ollama
+    container_name: project4-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - backend-net
+
   ai-service:
     build:
       context: ./ai-service
@@ -79,7 +89,7 @@ services:
       MONGO_SAVEDLOGS_DATABASE_NAME: "savedlogs"
       MONGO_SAVEDLOGS_COLLECTION: "saved_logs"
       SQLITE_DB_PATH: "/data/chat_history.db"
-      OLLAMA_BASE_URL: "http://host.docker.internal:11434/v1"
+      OLLAMA_BASE_URL: "http://ollama:11434/v1"
       OLLAMA_MODEL: "llama3.2"
       CORS_ALLOW_ORIGINS: ""
     volumes:
@@ -87,6 +97,8 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
+      ollama:
+        condition: service_started
     ports:
       - "8000:8000"
     networks:
@@ -103,13 +115,15 @@ services:
       MONGO_DATASET1_COLLECTION: "dataset1_logs"
       MONGO_DATASET2_COLLECTION: "dataset2_logs"
       EXPLANATION_BACKEND: "remote"
-      REMOTE_LLM_BASE_URL: "http://host.docker.internal:11434/v1"
+      REMOTE_LLM_BASE_URL: "http://ollama:11434/v1"
       REMOTE_LLM_MODEL: "llama3.2"
       REMOTE_LLM_API_KEY: ""
       CORS_ALLOW_ORIGINS: ""
     depends_on:
       mongo:
         condition: service_healthy
+      ollama:
+        condition: service_started
     ports:
       - "8010:8010"
     networks:
@@ -158,6 +172,7 @@ volumes:
   sqlserver_data:
   mongo_data:
   ai_service_data:
+  ollama_data:
 
 networks:
   backend-net:

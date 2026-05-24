@@ -33,7 +33,7 @@ class Settings:
     SQLITE_DB_PATH: str = os.getenv("SQLITE_DB_PATH", "data/chat_history.db")
 
     # Ollama — free local LLM (no API key needed)
-    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434/v1")
+    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434/v1")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.2")
 
     CORS_ALLOW_ORIGINS: list[str] = [
