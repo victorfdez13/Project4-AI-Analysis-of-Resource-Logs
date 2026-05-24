@@ -768,6 +768,16 @@ export default function MainPage() {
                 ))}
               </ul>
             </div>
+            {analysis?.points_of_interest?.length > 0 && (
+              <div>
+                <h3 className="mb-2 text-lg font-semibold text-[#0e5a74]">Points of Interest:</h3>
+                <ul className="list-disc pl-5 text-sm leading-relaxed text-[#1f2a37]/50">
+                  {analysis.points_of_interest.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div>
               <h3 className="mb-2 text-lg font-semibold text-[#0e5a74]">
                 Recommendation:

@@ -17,6 +17,7 @@ def analyze_speedadmin_log(
     changes = log.get("changes") or []
     entities = log.get("entities") or []
     impersonator = log.get("impersonatorMainEntityId")
+    session_id = log.get("sessionId")
     linked = linked_logs or []
 
     changes_text = ", ".join(
@@ -27,27 +28,33 @@ def analyze_speedadmin_log(
         str(e.get("entityType", "")) for e in entities[:5] if isinstance(e, dict)
     ) or "none"
 
-    linked_summary = f"{len(linked)} related log(s)" if linked else "no linked logs"
-    impersonation = f"impersonation by id {impersonator}" if impersonator else "none"
+    linked_summary = (
+        f"{len(linked)} related log(s) sharing the same session or entity"
+        if linked else "no linked logs"
+    )
+    impersonation = f"yes — acting user id {impersonator}" if impersonator else "none"
     user_section = f"\nUser question: {user_query}" if user_query else ""
 
-    prompt = f"""Analyze this SpeedAdmin school-management log entry and return JSON only.
+    prompt = f"""You are analyzing a SpeedAdmin school-management system log entry.
+Write for non-technical school staff — avoid jargon, be clear and concise.
 
-Category: {category}
-Level: {level}
-Message: {message}
-Time: {timestamp}
-Changed fields: {changes_text}
-Entity types: {entity_types}
-Context: {linked_summary}
-Impersonation: {impersonation}{user_section}
+Log details:
+  Category: {category}
+  Severity level: {level} (2=info, 3=warning, 4=error, 5=critical)
+  Message: {message}
+  Timestamp: {timestamp}
+  Fields changed: {changes_text}
+  Resource types involved: {entity_types}
+  Context: {linked_summary}
+  Impersonation: {impersonation}{user_section}
 
-Return JSON with exactly these keys (no markdown, no code fences):
+Return valid JSON only — no markdown, no code fences:
 {{
-  "summary": "<one sentence>",
-  "explanation": "<2-4 sentences>",
-  "anomalies": ["<anomaly if any>"],
-  "related_resources": ["<resource reference if any>"]
+  "summary": "<one sentence in plain language: what happened and why it matters>",
+  "explanation": "<2-4 sentences explaining the event in non-technical terms, what caused it and what to watch for>",
+  "anomalies": ["<any unusual or suspicious aspect — empty list if none>"],
+  "points_of_interest": ["<notable contextual observation, cross-resource link, or pattern — empty list if none>"],
+  "related_resources": ["<correlated entity or session reference, e.g. entity:Teacher:42 or session:abc123>"]
 }}"""
 
     raw = llm.complete(prompt)
@@ -63,31 +70,48 @@ Return JSON with exactly these keys (no markdown, no code fences):
                         "summary": str(parsed.get("summary", "")),
                         "explanation": str(parsed.get("explanation", "")),
                         "anomalies": list(parsed.get("anomalies") or []),
+                        "points_of_interest": list(parsed.get("points_of_interest") or []),
                         "related_resources": list(parsed.get("related_resources") or []),
                     }
             except (json.JSONDecodeError, ValueError):
                 pass
 
     # Fallback when LLM is unavailable or returns malformed output
-    anomalies = []
+    anomalies: list[str] = []
     if impersonator:
-        anomalies.append(f"Impersonation detected (id={impersonator}).")
-    if level is not None and level != 2:
-        anomalies.append(f"Unusual log level: {level}.")
+        anomalies.append(f"One user is acting on behalf of another (impersonation detected).")
+    if level is not None and level >= 4:
+        anomalies.append(f"This is a serious event — severity level {level}.")
     if changes:
-        anomalies.append(f"Contains {len(changes)} field change(s).")
+        anomalies.append(f"{len(changes)} field(s) were changed in this event.")
+
+    points: list[str] = []
+    if linked:
+        points.append(f"{len(linked)} related log(s) share the same session or entity.")
+    if session_id:
+        points.append(f"Session reference: {session_id}.")
+    if entities:
+        points.append(f"This event involves {len(entities)} linked resource(s).")
+
+    related: list[str] = []
+    if session_id:
+        related.append(f"session:{session_id}")
+    for e in entities[:5]:
+        if isinstance(e, dict) and e.get("entityType") is not None:
+            related.append(f"entity:{e.get('entityType')}:{e.get('entityId')}")
+    for lk in linked:
+        if lk.get("logId"):
+            related.append(f"log:{log.get('datasetName')}:{lk.get('logId')}")
 
     return {
-        "summary": f"Log in category '{category}' at level {level} with {len(linked)} linked log(s).",
-        "explanation": (
-            f"Category: {category}. Message: {message[:200] if message else 'none'}."
+        "summary": (
+            f"A '{category}' event occurred at severity level {level}."
+            + (" Impersonation was detected." if impersonator else "")
         ),
+        "explanation": f"Message: {message[:300] if message else 'none'}.",
         "anomalies": anomalies,
-        "related_resources": [
-            f"log:{log.get('datasetName')}:{lk.get('logId')}"
-            for lk in linked
-            if lk.get("logId")
-        ],
+        "points_of_interest": points,
+        "related_resources": related,
     }
 
 

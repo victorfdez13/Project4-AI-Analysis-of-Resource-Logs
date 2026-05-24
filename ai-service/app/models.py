@@ -21,6 +21,7 @@ class AnalyzeResponse(BaseModel):
     summary: str
     explanation: str
     anomalies: list[str]
+    points_of_interest: list[str]
     related_resources: list[str]
 
 

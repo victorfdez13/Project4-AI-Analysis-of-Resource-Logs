@@ -75,6 +75,7 @@ public sealed record AiAnalyzeResponse(
     [property: JsonPropertyName("summary")] string Summary,
     [property: JsonPropertyName("explanation")] string Explanation,
     [property: JsonPropertyName("anomalies")] IReadOnlyList<string> Anomalies,
+    [property: JsonPropertyName("points_of_interest")] IReadOnlyList<string>? PointsOfInterest,
     [property: JsonPropertyName("related_resources")] IReadOnlyList<string> RelatedResources);
 
 public sealed record SavedLogDocument(
