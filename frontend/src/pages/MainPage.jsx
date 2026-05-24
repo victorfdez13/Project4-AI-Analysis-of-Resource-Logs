@@ -26,6 +26,45 @@ const levelLabels = {
   5: "Critical",
 };
 
+const analysisFocusOptions = [
+  {
+    id: "login-session",
+    label: "Login / Session",
+    prompt:
+      "Focus on login issues, authentication events, and missing session references.",
+  },
+  {
+    id: "security",
+    label: "Security / Impersonation",
+    prompt:
+      "Focus on impersonation, unusual access, and security-related anomalies.",
+  },
+  {
+    id: "repeated-errors",
+    label: "Repeated Errors",
+    prompt:
+      "Focus on repeated errors, failures, and recurring message patterns.",
+  },
+  {
+    id: "severity",
+    label: "Severity / Priority",
+    prompt:
+      "Focus on high severity, overall risk, and whether this should be escalated.",
+  },
+  {
+    id: "data-changes",
+    label: "Data Changes",
+    prompt:
+      "Focus on changed fields, entity updates, and what was modified.",
+  },
+  {
+    id: "timing",
+    label: "Off-hours Activity",
+    prompt:
+      "Focus on off-hours or weekend activity and whether the timing looks unusual.",
+  },
+];
+
 function buildUrl(path, query = {}) {
   const params = new URLSearchParams();
 
@@ -132,6 +171,16 @@ function countByLevel(items, targetLevel) {
   return items.filter((item) => Number(item.level) === targetLevel).length;
 }
 
+function buildAnalysisPrompt(selectedFocusId, customPrompt) {
+  const selectedFocus = analysisFocusOptions.find(
+    (option) => option.id === selectedFocusId
+  );
+
+  return [selectedFocus?.prompt, customPrompt?.trim()]
+    .filter(Boolean)
+    .join(" ");
+}
+
 export default function MainPage() {
   const [severity, setSeverity] = useState("");
   const [resource, setResource] = useState("");
@@ -145,6 +194,7 @@ export default function MainPage() {
   const [analysis, setAnalysis] = useState(null);
   const [analysisError, setAnalysisError] = useState("");
   const [userPrompt, setUserPrompt] = useState("");
+  const [selectedAnalysisFocus, setSelectedAnalysisFocus] = useState("");
   const [selectedLogIds, setSelectedLogIds] = useState(new Set());
   const [bulkAnalysis, setBulkAnalysis] = useState(null);
   const [bulkAnalyzing, setBulkAnalyzing] = useState(false);
@@ -177,6 +227,8 @@ export default function MainPage() {
     setAnalysis(null);
     setAnalysisError("");
     setAnalysisSourceLabel("");
+    setSelectedAnalysisFocus("");
+    setUserPrompt("");
     setPageInfo((current) => ({
       ...current,
       skip: 0,
@@ -346,7 +398,11 @@ export default function MainPage() {
       setAnalysisError("");
 
       const params = { dataset: activeDataset };
-      if (userPrompt.trim()) params.prompt = userPrompt.trim();
+      const effectivePrompt = buildAnalysisPrompt(
+        selectedAnalysisFocus,
+        userPrompt
+      );
+      if (effectivePrompt) params.prompt = effectivePrompt;
 
       const response = await requestJson(
         `/api/logs/${selectedLogId}/analyze`,
@@ -379,7 +435,11 @@ export default function MainPage() {
       setAnalysisError("");
 
       const params = { dataset: activeDataset };
-      if (userPrompt.trim()) params.prompt = userPrompt.trim();
+      const effectivePrompt = buildAnalysisPrompt(
+        selectedAnalysisFocus,
+        userPrompt
+      );
+      if (effectivePrompt) params.prompt = effectivePrompt;
 
       const response = await requestJson(
         `/api/logs/${selectedLogId}/analyze-python-ai`,
@@ -409,10 +469,14 @@ export default function MainPage() {
       setBulkAnalyzing(true);
       setBulkAnalysisError("");
       setBulkAnalysis(null);
+      const effectivePrompt = buildAnalysisPrompt(
+        selectedAnalysisFocus,
+        userPrompt
+      );
       const body = {
         dataset: activeDataset,
         logIds: [...selectedLogIds],
-        ...(userPrompt.trim() ? { prompt: userPrompt.trim() } : {}),
+        ...(effectivePrompt ? { prompt: effectivePrompt } : {}),
       };
       const result = await requestJson(
         "/api/logs/analyze-batch",
@@ -844,9 +908,52 @@ export default function MainPage() {
               rows={2}
               value={userPrompt}
               onChange={(e) => setUserPrompt(e.target.value)}
-              placeholder="Optional: ask a specific question about this log..."
+              placeholder="Optional extra note for the analysis..."
               className="mt-2 w-full resize-none rounded-lg border border-[#cfd8df] bg-[#f9fafb] px-3 py-2 text-sm text-[#1f2a37] placeholder-[#1f2a37]/40 focus:border-[#0e5a74] focus:outline-none focus:ring-2 focus:ring-[#0e5a74]/10"
             />
+            <div className="mt-3 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wide text-[#0e5a74]">
+                  Analysis Focus
+                </span>
+                {selectedAnalysisFocus && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAnalysisFocus("")}
+                    className="text-xs font-medium text-[#0e5a74] underline-offset-2 hover:underline"
+                  >
+                    Clear focus
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {analysisFocusOptions.map((option) => {
+                  const isSelected = selectedAnalysisFocus === option.id;
+
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() =>
+                        setSelectedAnalysisFocus((current) =>
+                          current === option.id ? "" : option.id
+                        )
+                      }
+                      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                        isSelected
+                          ? "border-[#0e5a74] bg-[#0e5a74] text-white"
+                          : "border-[#cfd8df] bg-white text-[#0e5a74] hover:bg-[#eef3f6]"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs leading-relaxed text-[#1f2a37]/55">
+                Pick a focus area so the non-LLM analysis knows what to emphasize.
+              </p>
+            </div>
             <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
               <button
                 type="button"
