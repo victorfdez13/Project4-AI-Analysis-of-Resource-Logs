@@ -7,6 +7,8 @@ public sealed class BackendOptions
     public MongoSettings MongoSettings { get; set; } = new();
 
     public AiServiceSettings AiService { get; set; } = new();
+
+    public PythonAiServiceSettings PythonAiService { get; set; } = new();
 }
 
 public sealed class MongoSettings
@@ -19,4 +21,9 @@ public sealed class MongoSettings
 public sealed class AiServiceSettings
 {
     public string BaseUrl { get; set; } = "http://localhost:8000";
+}
+
+public sealed class PythonAiServiceSettings
+{
+    public string BaseUrl { get; set; } = "http://localhost:8010";
 }

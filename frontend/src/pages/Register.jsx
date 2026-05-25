@@ -52,7 +52,7 @@ export default function Register() {
         navigate("/login");
       }, 1500);
 
-    } catch (err) {
+    } catch {
       setError("Cannot connect to backend");
     } finally {
       setLoading(false);

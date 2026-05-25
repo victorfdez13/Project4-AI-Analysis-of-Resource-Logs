@@ -75,6 +75,7 @@ public sealed record AiAnalyzeResponse(
     [property: JsonPropertyName("summary")] string Summary,
     [property: JsonPropertyName("explanation")] string Explanation,
     [property: JsonPropertyName("anomalies")] IReadOnlyList<string> Anomalies,
+    [property: JsonPropertyName("points_of_interest")] IReadOnlyList<string>? PointsOfInterest,
     [property: JsonPropertyName("related_resources")] IReadOnlyList<string> RelatedResources);
 
 public sealed record SavedLogDocument(
@@ -86,9 +87,21 @@ public sealed record SavedLogDocument(
     [property: JsonPropertyName("originalLog")] JsonElement? OriginalLog,
     [property: JsonPropertyName("analysis")] AiAnalyzeResponse? Analysis);
 
+public sealed record LogsBatchRequest(
+    [property: JsonPropertyName("dataset")] string Dataset,
+    [property: JsonPropertyName("logIds")] IReadOnlyList<int> LogIds,
+    [property: JsonPropertyName("prompt")] string? Prompt);
+
+public sealed record AiBatchAnalyzeResponse(
+    [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("anomalies")] IReadOnlyList<string> Anomalies,
+    [property: JsonPropertyName("points_of_interest")] IReadOnlyList<string> PointsOfInterest,
+    [property: JsonPropertyName("log_count")] int LogCount);
+
 public sealed record SavedAnalysisResult(
     string Id,
     string Dataset,
     int LogId,
     string AnalyzedAt,
+    string? Prompt,
     AiAnalyzeResponse Analysis);

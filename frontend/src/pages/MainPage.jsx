@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import Navbar from "../components/Navbar";
 
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL?.trim() || "http://127.0.0.1:5005"
@@ -25,6 +25,45 @@ const levelLabels = {
   4: "Error",
   5: "Critical",
 };
+
+const analysisFocusOptions = [
+  {
+    id: "login-session",
+    label: "Login / Session",
+    prompt:
+      "Focus on login issues, authentication events, and missing session references.",
+  },
+  {
+    id: "security",
+    label: "Security / Impersonation",
+    prompt:
+      "Focus on impersonation, unusual access, and security-related anomalies.",
+  },
+  {
+    id: "repeated-errors",
+    label: "Repeated Errors",
+    prompt:
+      "Focus on repeated errors, failures, and recurring message patterns.",
+  },
+  {
+    id: "severity",
+    label: "Severity / Priority",
+    prompt:
+      "Focus on high severity, overall risk, and whether this should be escalated.",
+  },
+  {
+    id: "data-changes",
+    label: "Data Changes",
+    prompt:
+      "Focus on changed fields, entity updates, and what was modified.",
+  },
+  {
+    id: "timing",
+    label: "Off-hours Activity",
+    prompt:
+      "Focus on off-hours or weekend activity and whether the timing looks unusual.",
+  },
+];
 
 function buildUrl(path, query = {}) {
   const params = new URLSearchParams();
@@ -132,6 +171,16 @@ function countByLevel(items, targetLevel) {
   return items.filter((item) => Number(item.level) === targetLevel).length;
 }
 
+function buildAnalysisPrompt(selectedFocusId, customPrompt) {
+  const selectedFocus = analysisFocusOptions.find(
+    (option) => option.id === selectedFocusId
+  );
+
+  return [selectedFocus?.prompt, customPrompt?.trim()]
+    .filter(Boolean)
+    .join(" ");
+}
+
 export default function MainPage() {
   const [severity, setSeverity] = useState("");
   const [resource, setResource] = useState("");
@@ -144,6 +193,12 @@ export default function MainPage() {
   const [selectedLog, setSelectedLog] = useState(null);
   const [analysis, setAnalysis] = useState(null);
   const [analysisError, setAnalysisError] = useState("");
+  const [userPrompt, setUserPrompt] = useState("");
+  const [selectedAnalysisFocus, setSelectedAnalysisFocus] = useState("");
+  const [selectedLogIds, setSelectedLogIds] = useState(new Set());
+  const [bulkAnalysis, setBulkAnalysis] = useState(null);
+  const [bulkAnalyzing, setBulkAnalyzing] = useState(false);
+  const [bulkAnalysisError, setBulkAnalysisError] = useState("");
   const [pageInfo, setPageInfo] = useState({
     skip: 0,
     take: PAGE_SIZE,
@@ -153,11 +208,12 @@ export default function MainPage() {
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [pythonAiAnalyzing, setPythonAiAnalyzing] = useState(false);
+  const [analysisSourceLabel, setAnalysisSourceLabel] = useState("");
   const [pageError, setPageError] = useState("");
   const [logsError, setLogsError] = useState("");
   const [detailError, setDetailError] = useState("");
   const selectedLogIdRef = useRef(null);
-  const navigate = useNavigate();
 
   useEffect(() => {
     selectedLogIdRef.current = selectedLogId;
@@ -169,18 +225,14 @@ export default function MainPage() {
     setKeyword("");
     setAnalysis(null);
     setAnalysisError("");
+    setAnalysisSourceLabel("");
+    setSelectedAnalysisFocus("");
+    setUserPrompt("");
     setPageInfo((current) => ({
       ...current,
       skip: 0,
     }));
   };
-
-  const navItems = [
-    { label: "Dashboard", path: "/main" },
-    { label: "Saved Logs", path: "/saved-logs" },
-    { label: "Analysis", path: "/analysis" },
-    { label: "Settings", path: "/settings" },
-  ];
 
   useEffect(() => {
     const controller = new AbortController();
@@ -337,9 +389,16 @@ export default function MainPage() {
       setAnalyzing(true);
       setAnalysisError("");
 
+      const params = { dataset: activeDataset };
+      const effectivePrompt = buildAnalysisPrompt(
+        selectedAnalysisFocus,
+        userPrompt
+      );
+      if (effectivePrompt) params.prompt = effectivePrompt;
+
       const response = await requestJson(
         `/api/logs/${selectedLogId}/analyze`,
-        { dataset: activeDataset },
+        params,
         { method: "POST" }
       );
 
@@ -347,12 +406,80 @@ export default function MainPage() {
         ...response.analysis,
         anomalies: response.analysis?.anomalies || [],
       });
+      setAnalysisSourceLabel("Default AI Service");
       setSelectedLog(response.log || selectedLog);
     } catch (error) {
       setAnalysis(null);
+      setAnalysisSourceLabel("");
       setAnalysisError(error.message || "Unable to analyze the selected log.");
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const handlePythonAiAnalyze = async () => {
+    if (!activeDataset || !selectedLogId) {
+      return;
+    }
+
+    try {
+      setPythonAiAnalyzing(true);
+      setAnalysisError("");
+
+      const params = { dataset: activeDataset };
+      const effectivePrompt = buildAnalysisPrompt(
+        selectedAnalysisFocus,
+        userPrompt
+      );
+      if (effectivePrompt) params.prompt = effectivePrompt;
+
+      const response = await requestJson(
+        `/api/logs/${selectedLogId}/analyze-python-ai`,
+        params,
+        { method: "POST" }
+      );
+
+      setAnalysis({
+        ...response.analysis,
+        anomalies: response.analysis?.anomalies || [],
+        points_of_interest: response.analysis?.points_of_interest || [],
+      });
+      setAnalysisSourceLabel("Python AI Test");
+      setSelectedLog(response.log || selectedLog);
+    } catch (error) {
+      setAnalysis(null);
+      setAnalysisSourceLabel("");
+      setAnalysisError(error.message || "Unable to analyze the selected log with Python AI.");
+    } finally {
+      setPythonAiAnalyzing(false);
+    }
+  };
+
+  const handleBulkAnalyze = async () => {
+    if (!activeDataset || selectedLogIds.size === 0) return;
+    try {
+      setBulkAnalyzing(true);
+      setBulkAnalysisError("");
+      setBulkAnalysis(null);
+      const effectivePrompt = buildAnalysisPrompt(
+        selectedAnalysisFocus,
+        userPrompt
+      );
+      const body = {
+        dataset: activeDataset,
+        logIds: [...selectedLogIds],
+        ...(effectivePrompt ? { prompt: effectivePrompt } : {}),
+      };
+      const result = await requestJson(
+        "/api/logs/analyze-batch",
+        {},
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      );
+      setBulkAnalysis(result);
+    } catch (error) {
+      setBulkAnalysisError(error.message || "Unable to analyze selected logs.");
+    } finally {
+      setBulkAnalyzing(false);
     }
   };
 
@@ -361,37 +488,11 @@ export default function MainPage() {
   const infoCount = countByLevel(logs, 2);
   const warningCount = countByLevel(logs, 3);
   const errorCount = countByLevel(logs, 4) + countByLevel(logs, 5);
+  const hasActiveFilters = severity !== "" || resource.trim() !== "" || keyword.trim() !== "";
 
   return (
     <div className="min-h-screen bg-[#f4f6f8] font-sans text-[#1f2a37]">
-      <nav
-        className="flex items-center justify-between px-6 py-3"
-        style={{ background: "linear-gradient(135deg, #0e5a74, #0b4a60)" }}
-      >
-        <div className="flex items-center gap-2">
-          <div className="h-5 w-5 rounded-full bg-[#e9782e]" />
-          <span className="text-sm font-bold text-white">Resource</span>
-          <span className="text-sm text-white/80">Logs</span>
-        </div>
-        <div className="flex gap-6">
-          {navItems.map((item) => (
-            <span
-              key={item.label}
-              onClick={() => navigate(item.path)}
-              className={`cursor-pointer text-sm font-medium transition-colors ${
-                item.label === "Dashboard"
-                  ? "border-b-2 border-[#e9782e] pb-0.5 text-white"
-                  : "text-white/70 hover:text-white"
-              }`}
-            >
-              {item.label}
-            </span>
-          ))}
-        </div>
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#e9782e] text-xs font-bold text-white">
-          VS
-        </div>
-      </nav>
+      <Navbar active="Dashboard" />
 
       <main className="grid grid-cols-1 items-start gap-6 p-8 xl:grid-cols-[320px_1fr_360px]">
         <aside className="overflow-hidden rounded-[18px] border border-[#d9e1e7] bg-white shadow-[0_4px_14px_rgba(14,90,116,0.08)]">
@@ -525,14 +626,38 @@ export default function MainPage() {
 
         <section className="flex flex-col gap-5">
           <div className="overflow-hidden rounded-[18px] border border-[#d9e1e7] bg-white shadow-[0_4px_14px_rgba(14,90,116,0.08)]">
-            <div className="border-b border-[#d9e1e7] bg-[#fbfcfd] px-6 py-5">
+            <div className="border-b border-[#d9e1e7] bg-[#fbfcfd] px-6 py-5 flex items-center justify-between">
               <h2 className="text-xl font-semibold text-[#0e5a74]">Logs</h2>
+              {selectedLogIds.size > 0 && (
+                <button
+                  onClick={handleBulkAnalyze}
+                  disabled={bulkAnalyzing}
+                  className="rounded-lg px-4 py-2 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  style={{ background: "linear-gradient(135deg, #0e5a74, #e9782e)" }}
+                >
+                  {bulkAnalyzing ? "Analyzing..." : `Analyze Selected (${selectedLogIds.size})`}
+                </button>
+              )}
             </div>
             <div className="px-6 py-5">
               <div className="overflow-hidden rounded-xl border border-[#d9e1e7]">
                 <table className="w-full border-collapse">
                   <thead>
                     <tr className="bg-[#eef3f6]">
+                      <th className="w-10 px-3 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          title="Select all visible logs"
+                          checked={logs.length > 0 && selectedLogIds.size === logs.length}
+                          ref={(el) => {
+                            if (el) el.indeterminate = selectedLogIds.size > 0 && selectedLogIds.size < logs.length;
+                          }}
+                          onChange={(e) =>
+                            setSelectedLogIds(e.target.checked ? new Set(logs.map((l) => l.logId)) : new Set())
+                          }
+                          className="accent-[#0e5a74]"
+                        />
+                      </th>
                       {["Time", "Resource", "Severity", "Message"].map((header) => (
                         <th
                           key={header}
@@ -551,7 +676,10 @@ export default function MainPage() {
                           setSelectedLogId(log.logId);
                           setSelectedLog(log);
                           setAnalysis(null);
+                          setAnalysisSourceLabel("");
                           setAnalysisError("");
+                          setBulkAnalysis(null);
+                          setBulkAnalysisError("");
                         }}
                         className={`cursor-pointer border-t border-[#e8edf1] transition-colors ${
                           selectedLogId === log.logId
@@ -559,6 +687,20 @@ export default function MainPage() {
                             : "hover:bg-[#f7fafc]"
                         }`}
                       >
+                        <td className="w-10 px-3 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedLogIds.has(log.logId)}
+                            onChange={(e) =>
+                              setSelectedLogIds((prev) => {
+                                const next = new Set(prev);
+                                e.target.checked ? next.add(log.logId) : next.delete(log.logId);
+                                return next;
+                              })
+                            }
+                            className="accent-[#0e5a74]"
+                          />
+                        </td>
                         <td className="px-5 py-4 text-sm text-[#1f2a37]/75">
                           {formatDateTime(log.time)}
                         </td>
@@ -580,8 +722,17 @@ export default function MainPage() {
 
                     {!loadingLogs && logs.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="px-5 py-6 text-center text-sm text-[#1f2a37]/40">
-                          No logs to display.
+                        <td colSpan={5} className="px-5 py-6 text-center text-sm text-[#1f2a37]/40" data-testid="empty-logs">
+                          {hasActiveFilters ? (
+                            <>
+                              No logs match your current filters.{" "}
+                              <button onClick={clearFilters} className="underline text-[#0e5a74]">
+                                Clear filters
+                              </button>
+                            </>
+                          ) : (
+                            "No logs found in this dataset."
+                          )}
                         </td>
                       </tr>
                     )}
@@ -677,7 +828,7 @@ export default function MainPage() {
                       </tr>
                     ) : (
                       <tr>
-                        <td colSpan={5} className="px-5 py-6 text-center text-sm text-[#1f2a37]/40">
+                        <td colSpan={5} className="px-5 py-6 text-center text-sm text-[#1f2a37]/40" data-testid="no-log-selected">
                           Select a log above to view details.
                         </td>
                       </tr>
@@ -712,30 +863,143 @@ export default function MainPage() {
           </div>
           <div className="px-6 py-5">
             <textarea
-              rows={5}
+              rows={4}
               readOnly
               value={selectedLog?.message || ""}
               placeholder="Select a log to analyze..."
               className="w-full resize-none rounded-lg border border-[#cfd8df] bg-white px-3 py-3 text-sm text-[#1f2a37] focus:border-[#0e5a74] focus:outline-none focus:ring-2 focus:ring-[#0e5a74]/10"
             />
-            <button
-              type="button"
-              onClick={handleAnalyze}
-              disabled={!selectedLogId || analyzing}
-              className="mt-3 w-full rounded-lg px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
-              style={{ background: "linear-gradient(135deg, #0e5a74, #e9782e)" }}
-            >
-              {analyzing ? "Analyzing..." : "Analyze Logs"}
-            </button>
+            <textarea
+              rows={2}
+              value={userPrompt}
+              onChange={(e) => setUserPrompt(e.target.value)}
+              placeholder="Optional extra note for the analysis..."
+              className="mt-2 w-full resize-none rounded-lg border border-[#cfd8df] bg-[#f9fafb] px-3 py-2 text-sm text-[#1f2a37] placeholder-[#1f2a37]/40 focus:border-[#0e5a74] focus:outline-none focus:ring-2 focus:ring-[#0e5a74]/10"
+            />
+            <div className="mt-3 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wide text-[#0e5a74]">
+                  Analysis Focus
+                </span>
+                {selectedAnalysisFocus && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAnalysisFocus("")}
+                    className="text-xs font-medium text-[#0e5a74] underline-offset-2 hover:underline"
+                  >
+                    Clear focus
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {analysisFocusOptions.map((option) => {
+                  const isSelected = selectedAnalysisFocus === option.id;
+
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() =>
+                        setSelectedAnalysisFocus((current) =>
+                          current === option.id ? "" : option.id
+                        )
+                      }
+                      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                        isSelected
+                          ? "border-[#0e5a74] bg-[#0e5a74] text-white"
+                          : "border-[#cfd8df] bg-white text-[#0e5a74] hover:bg-[#eef3f6]"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs leading-relaxed text-[#1f2a37]/55">
+                Pick a focus area so the non-LLM analysis knows what to emphasize.
+              </p>
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                data-testid="analyze-button"
+                onClick={handleAnalyze}
+                disabled={!selectedLogId || analyzing || pythonAiAnalyzing}
+                className="w-full rounded-lg px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+                style={{ background: "linear-gradient(135deg, #0e5a74, #e9782e)" }}
+              >
+                {analyzing ? "Analyzing..." : "Analyze Logs"}
+              </button>
+              <button
+                type="button"
+                onClick={handlePythonAiAnalyze}
+                disabled={!selectedLogId || analyzing || pythonAiAnalyzing}
+                className="w-full rounded-lg border border-[#0e5a74] bg-white px-4 py-3 text-sm font-bold text-[#0e5a74] transition-colors hover:bg-[#eef3f6] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {pythonAiAnalyzing ? "Testing Python AI..." : "Test Python AI"}
+              </button>
+            </div>
           </div>
 
           <div className="border-t border-[#d9e1e7]" />
 
           <div className="flex flex-col gap-5 px-6 py-5">
+            {bulkAnalysisError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                {bulkAnalysisError}
+              </div>
+            )}
+
+            {bulkAnalysis && (
+              <div className="rounded-lg border border-[#d9e1e7] bg-[#f4f6f8] px-4 py-4 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[#0e5a74]">
+                    Bulk Analysis — {bulkAnalysis.logCount} log(s)
+                  </span>
+                  <button
+                    onClick={() => { setBulkAnalysis(null); setBulkAnalysisError(""); }}
+                    className="text-[#1f2a37]/30 hover:text-[#1f2a37]/60 text-sm"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <p className="text-sm text-[#1f2a37]/80 leading-relaxed">{bulkAnalysis.summary}</p>
+                {bulkAnalysis.anomalies?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-[#0e5a74] mb-1">Anomalies</p>
+                    <ul className="list-disc pl-4 text-sm text-[#1f2a37]/70 space-y-0.5">
+                      {bulkAnalysis.anomalies.map((a, i) => <li key={i}>{a}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {bulkAnalysis.points_of_interest?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-[#0e5a74] mb-1">Points of Interest</p>
+                    <ul className="list-disc pl-4 text-sm text-[#1f2a37]/70 space-y-0.5">
+                      {bulkAnalysis.points_of_interest.map((p, i) => <li key={i}>{p}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {analysisError && (
+              <div
+                data-testid="analysis-error"
+                className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600"
+              >
+                {analysisError}
+              </div>
+            )}
+            {analysisSourceLabel && (
+              <div className="rounded-lg border border-[#d9e1e7] bg-[#f4f6f8] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#0e5a74]">
+                Result source: {analysisSourceLabel}
+              </div>
+            )}
             <div>
               <h3 className="mb-2 text-lg font-semibold text-[#0e5a74]">Summary:</h3>
-              <p className="text-sm leading-relaxed text-[#1f2a37]/50">
-                {analysis?.summary || analysisError || "-"}
+              <p data-testid="analysis-summary" className="text-sm leading-relaxed text-[#1f2a37]/50">
+                {analysis?.summary || "-"}
               </p>
             </div>
             <div>
@@ -749,6 +1013,16 @@ export default function MainPage() {
                 ))}
               </ul>
             </div>
+            {analysis?.points_of_interest?.length > 0 && (
+              <div>
+                <h3 className="mb-2 text-lg font-semibold text-[#0e5a74]">Points of Interest:</h3>
+                <ul className="list-disc pl-5 text-sm leading-relaxed text-[#1f2a37]/50">
+                  {analysis.points_of_interest.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div>
               <h3 className="mb-2 text-lg font-semibold text-[#0e5a74]">
                 Recommendation:

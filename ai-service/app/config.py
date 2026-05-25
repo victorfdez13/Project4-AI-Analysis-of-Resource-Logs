@@ -11,8 +11,6 @@ class Settings:
     APP_VERSION: str = os.getenv("APP_VERSION", "0.1.0")
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8000"))
-    LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
-    MODEL_NAME: str = os.getenv("MODEL_NAME", "gpt-4o-mini")
 
     MONGO_URI: str = os.getenv(
         "MONGO_URI", "mongodb://admin:mongodb123@localhost:27017"
@@ -34,9 +32,17 @@ class Settings:
 
     SQLITE_DB_PATH: str = os.getenv("SQLITE_DB_PATH", "data/chat_history.db")
 
-    # Ollama — free local LLM (optional, no API key needed)
-    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    # LLM provider selection: "ollama" | "generic" | "mock"
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama")
+
+    # Ollama provider (used when LLM_PROVIDER=ollama)
+    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434/v1")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.2")
+
+    # Generic OpenAI-compatible provider (used when LLM_PROVIDER=generic)
+    LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "")
+    LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
 
     CORS_ALLOW_ORIGINS: list[str] = [
         origin.strip()

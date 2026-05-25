@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import Navbar from "../components/Navbar";
 
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL?.trim() || "http://127.0.0.1:5005"
@@ -132,20 +132,12 @@ function MetricTile({ label, value, hint }) {
 }
 
 export default function Settings() {
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [appHealth, setAppHealth] = useState(null);
   const [databaseHealth, setDatabaseHealth] = useState(null);
   const [aiHealth, setAiHealth] = useState(null);
   const [datasetSummaries, setDatasetSummaries] = useState([]);
-
-  const navItems = [
-    { label: "Dashboard", path: "/main" },
-    { label: "Saved Logs", path: "/saved-logs" },
-    { label: "Analysis", path: "/analysis" },
-    { label: "Settings", path: "/settings" },
-  ];
 
   useEffect(() => {
     const controller = new AbortController();
@@ -217,34 +209,7 @@ export default function Settings() {
 
   return (
     <div className="min-h-screen bg-[#f4f6f8] font-sans text-[#1f2a37]">
-      <nav
-        className="flex items-center justify-between px-6 py-3"
-        style={{ background: "linear-gradient(135deg, #0e5a74, #0b4a60)" }}
-      >
-        <div className="flex items-center gap-2">
-          <div className="h-5 w-5 rounded-full bg-[#e9782e]" />
-          <span className="text-sm font-bold text-white">Resource</span>
-          <span className="text-sm text-white/80">Logs</span>
-        </div>
-        <div className="flex gap-6">
-          {navItems.map((item) => (
-            <span
-              key={item.label}
-              onClick={() => navigate(item.path)}
-              className={`cursor-pointer text-sm font-medium transition-colors ${
-                item.label === "Settings"
-                  ? "border-b-2 border-[#e9782e] pb-0.5 text-white"
-                  : "text-white/70 hover:text-white"
-              }`}
-            >
-              {item.label}
-            </span>
-          ))}
-        </div>
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#e9782e] text-xs font-bold text-white">
-          VS
-        </div>
-      </nav>
+      <Navbar active="Settings" />
 
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-8">
         <section className="rounded-[18px] border border-[#d9e1e7] bg-white px-6 py-6 shadow-[0_4px_14px_rgba(14,90,116,0.08)]">
