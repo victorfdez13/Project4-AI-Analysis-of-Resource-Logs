@@ -43,9 +43,17 @@ builder.Services.AddHttpClient<AiAnalysisClient>((serviceProvider, client) =>
     var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>().Value;
 
     if (!Uri.TryCreate(options.AiService.BaseUrl, UriKind.Absolute, out var baseUri))
-    {
         throw new InvalidOperationException("AiService:BaseUrl must be a valid absolute URL.");
-    }
+
+    client.BaseAddress = baseUri;
+});
+
+builder.Services.AddHttpClient<PythonAiAnalysisClient>((serviceProvider, client) =>
+{
+    var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>().Value;
+
+    if (!Uri.TryCreate(options.PythonAiService.BaseUrl, UriKind.Absolute, out var baseUri))
+        throw new InvalidOperationException("PythonAiService:BaseUrl must be a valid absolute URL.");
 
     client.BaseAddress = baseUri;
 });
@@ -236,13 +244,14 @@ logRoutes.MapGet("/summary", async (
     }
 }).RequireAuthorization("ViewerAccess");
 
-// Analyze endpoint — runs AI analysis and saves result to MongoDB
+// Analyze endpoint — calls both ai-service (LLM text) and python-ai (ML) in parallel
 logRoutes.MapPost("/{id:int}/analyze", async (
     int id,
     string? dataset,
     HttpContext context,
     SqlLogRepository repository,
     AiAnalysisClient aiClient,
+    PythonAiAnalysisClient pythonAiClient,
     MongoPromptRepository mongoRepository,
     CancellationToken cancellationToken) =>
 {
@@ -254,48 +263,29 @@ logRoutes.MapPost("/{id:int}/analyze", async (
         var log = await repository.GetLogByIdAsync(dataset, id, cancellationToken);
 
         if (log is null)
+            return Results.NotFound(new { message = $"Log with id {id} was not found." });
+
+        var aiTask = aiClient.AnalyzeAsync(log, null, cancellationToken);
+        var pythonTask = pythonAiClient.AnalyzeAsync(log, null, cancellationToken);
+
+        AiAnalyzeResponse? textAnalysis = null;
+        PythonAiAnalyzeResponse? mlAnalysis = null;
+
+        try { textAnalysis = await aiTask; } catch { /* ai-service degraded */ }
+        try { mlAnalysis = await pythonTask; } catch { /* python-ai degraded */ }
+
+        if (textAnalysis is not null)
         {
-            return Results.NotFound(new
-            {
-                message = $"Log with id {id} was not found."
-            });
+            var userId = context.User.Identity?.Name ?? "unknown";
+            await mongoRepository.SaveAnalysisAsync(
+                log.Dataset, log.LogId, log, textAnalysis, userId, "Customer", true, null, cancellationToken);
         }
 
-        var analysis = await aiClient.AnalyzeAsync(
-    log,
-    null,
-    cancellationToken);
-
-        var userId = context.User.Identity?.Name ?? "unknown";
-
-        await mongoRepository.SaveAnalysisAsync(
-    log.Dataset,
-    log.LogId,
-    log,
-    analysis,
-    userId,
-    "Customer",
-    true,
-    null,
-    cancellationToken);
-
-        var response = new LogAnalysisResponse(log, analysis);
-
-        return Results.Ok(response);
+        return Results.Ok(new CombinedLogAnalysisResponse(log, textAnalysis, mlAnalysis));
     }
     catch (ArgumentException exception)
     {
-        return Results.BadRequest(new
-        {
-            message = exception.Message
-        });
-    }
-    catch (HttpRequestException exception)
-    {
-        return Results.Problem(
-            title: "AI service unavailable",
-            detail: exception.Message,
-            statusCode: StatusCodes.Status503ServiceUnavailable);
+        return Results.BadRequest(new { message = exception.Message });
     }
 })
 .RequireAuthorization("AnalystOrAdmin"); 

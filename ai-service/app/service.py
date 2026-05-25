@@ -53,8 +53,7 @@ Return valid JSON only — no markdown, no code fences:
   "summary": "<one sentence in plain language: what happened and why it matters>",
   "explanation": "<2-4 sentences explaining the event in non-technical terms, what caused it and what to watch for>",
   "anomalies": ["<any unusual or suspicious aspect — empty list if none>"],
-  "points_of_interest": ["<notable contextual observation, cross-resource link, or pattern — empty list if none>"],
-  "related_resources": ["<correlated entity or session reference, e.g. entity:Teacher:42 or session:abc123>"]
+  "points_of_interest": ["<notable contextual observation or pattern — empty list if none>"]
 }}"""
 
     raw = llm.complete(prompt)
@@ -71,47 +70,15 @@ Return valid JSON only — no markdown, no code fences:
                         "explanation": str(parsed.get("explanation", "")),
                         "anomalies": list(parsed.get("anomalies") or []),
                         "points_of_interest": list(parsed.get("points_of_interest") or []),
-                        "related_resources": list(parsed.get("related_resources") or []),
                     }
             except (json.JSONDecodeError, ValueError):
                 pass
 
-    # Fallback when LLM is unavailable or returns malformed output
-    anomalies: list[str] = []
-    if impersonator:
-        anomalies.append(f"One user is acting on behalf of another (impersonation detected).")
-    if level is not None and level >= 4:
-        anomalies.append(f"This is a serious event — severity level {level}.")
-    if changes:
-        anomalies.append(f"{len(changes)} field(s) were changed in this event.")
-
-    points: list[str] = []
-    if linked:
-        points.append(f"{len(linked)} related log(s) share the same session or entity.")
-    if session_id:
-        points.append(f"Session reference: {session_id}.")
-    if entities:
-        points.append(f"This event involves {len(entities)} linked resource(s).")
-
-    related: list[str] = []
-    if session_id:
-        related.append(f"session:{session_id}")
-    for e in entities[:5]:
-        if isinstance(e, dict) and e.get("entityType") is not None:
-            related.append(f"entity:{e.get('entityType')}:{e.get('entityId')}")
-    for lk in linked:
-        if lk.get("logId"):
-            related.append(f"log:{log.get('datasetName')}:{lk.get('logId')}")
-
     return {
-        "summary": (
-            f"A '{category}' event occurred at severity level {level}."
-            + (" Impersonation was detected." if impersonator else "")
-        ),
-        "explanation": f"Message: {message[:300] if message else 'none'}.",
-        "anomalies": anomalies,
-        "points_of_interest": points,
-        "related_resources": related,
+        "summary": "",
+        "explanation": "",
+        "anomalies": [],
+        "points_of_interest": [],
     }
 
 
@@ -173,27 +140,10 @@ Return valid JSON only — no markdown, no code fences:
             except (json.JSONDecodeError, ValueError):
                 pass
 
-    # Fallback: rule-based aggregation
-    from collections import Counter
-    categories: Counter[str] = Counter(
-        str(l.get("category") or "Unknown") for l in logs
-    )
-    high_severity = sum(1 for l in logs if (l.get("level") or 0) >= 4)
-    impersonations = sum(1 for l in logs if l.get("impersonatorMainEntityId"))
-
-    anomalies: list[str] = []
-    if high_severity:
-        anomalies.append(f"{high_severity} log(s) with severity level 4 or higher.")
-    if impersonations:
-        anomalies.append(f"{impersonations} impersonation event(s) detected.")
-
-    top = ", ".join(f"'{c}' ({n})" for c, n in categories.most_common(3))
-    poi = [f"Top categories: {top}."] if top else []
-
     return {
-        "summary": f"Batch of {len(logs)} log(s) across {len(categories)} category/categories.",
-        "anomalies": anomalies,
-        "points_of_interest": poi,
+        "summary": "",
+        "anomalies": [],
+        "points_of_interest": [],
         "log_count": len(logs),
     }
 

@@ -1,8 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
-using Microsoft.Extensions.Options;
 using Project4_AI_Analysis_of_Resource_Logs.Contracts;
-using Project4_AI_Analysis_of_Resource_Logs.Options;
 
 namespace Project4_AI_Analysis_of_Resource_Logs.Services;
 
@@ -13,22 +11,13 @@ public sealed class PythonAiAnalysisClient
 
     public PythonAiAnalysisClient(
         HttpClient httpClient,
-        IOptions<BackendOptions> options,
         ILogger<PythonAiAnalysisClient> logger)
     {
         _httpClient = httpClient;
         _logger = logger;
-
-        var baseUrl = options.Value.PythonAiService.BaseUrl;
-        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri))
-        {
-            throw new InvalidOperationException("PythonAiService:BaseUrl must be a valid absolute URL.");
-        }
-
-        _httpClient.BaseAddress = baseUri;
     }
 
-    public async Task<AiAnalyzeResponse> AnalyzeAsync(
+    public async Task<PythonAiAnalyzeResponse> AnalyzeAsync(
         ResourceLogDetail log,
         string? prompt,
         CancellationToken cancellationToken)
@@ -70,7 +59,7 @@ public sealed class PythonAiAnalysisClient
                     $"Python AI service returned HTTP {(int)response.StatusCode}: {responseBody}");
             }
 
-            var payload = await response.Content.ReadFromJsonAsync<AiAnalyzeResponse>(
+            var payload = await response.Content.ReadFromJsonAsync<PythonAiAnalyzeResponse>(
                 cancellationToken: cancellationToken);
 
             if (payload == null)

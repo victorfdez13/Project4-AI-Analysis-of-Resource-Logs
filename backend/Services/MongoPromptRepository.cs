@@ -56,9 +56,7 @@ public sealed class MongoPromptRepository
     ["summary"] = analysis.Summary,
     ["explanation"] = analysis.Explanation,
     ["anomalies"] = new BsonArray(analysis.Anomalies),
-    ["pointsOfInterest"] = new BsonArray(analysis.PointsOfInterest ?? []),
-    ["relatedResources"] = new BsonArray(analysis.RelatedResources),
-    ["linkedEvidence"] = new BsonArray(analysis.RelatedResources),
+    ["pointsOfInterest"] = new BsonArray(analysis.PointsOfInterest),
 }
         };
 

@@ -61,9 +61,6 @@ public sealed record DatasetSummaryResponse(
     DateTimeOffset? LatestTime,
     IReadOnlyList<LogLevelCount> Levels);
 
-public sealed record LogAnalysisResponse(
-    ResourceLogDetail Log,
-    AiAnalyzeResponse Analysis);
 
 public sealed record AiAnalyzeRequest(
     [property: JsonPropertyName("resource_id")] string ResourceId,
@@ -75,8 +72,56 @@ public sealed record AiAnalyzeResponse(
     [property: JsonPropertyName("summary")] string Summary,
     [property: JsonPropertyName("explanation")] string Explanation,
     [property: JsonPropertyName("anomalies")] IReadOnlyList<string> Anomalies,
-    [property: JsonPropertyName("points_of_interest")] IReadOnlyList<string>? PointsOfInterest,
-    [property: JsonPropertyName("related_resources")] IReadOnlyList<string> RelatedResources);
+    [property: JsonPropertyName("points_of_interest")] IReadOnlyList<string> PointsOfInterest);
+
+public sealed record PythonContextOverview(
+    [property: JsonPropertyName("dataset")] string? Dataset,
+    [property: JsonPropertyName("requested_log_id")] int? RequestedLogId,
+    [property: JsonPropertyName("selected_log_count")] int SelectedLogCount,
+    [property: JsonPropertyName("linked_log_count")] int LinkedLogCount,
+    [property: JsonPropertyName("filtered_log_count")] int FilteredLogCount,
+    [property: JsonPropertyName("comparison_log_count")] int ComparisonLogCount,
+    [property: JsonPropertyName("active_filters")] IReadOnlyList<string> ActiveFilters);
+
+public sealed record PythonGroupingInsight(
+    [property: JsonPropertyName("group_id")] int GroupId,
+    [property: JsonPropertyName("group_count")] int GroupCount,
+    [property: JsonPropertyName("group_size")] int GroupSize,
+    [property: JsonPropertyName("average_risk")] double AverageRisk,
+    [property: JsonPropertyName("dominant_categories")] IReadOnlyList<string> DominantCategories,
+    [property: JsonPropertyName("summary")] string Summary);
+
+public sealed record PythonPriorityAssessment(
+    [property: JsonPropertyName("predicted_label")] string PredictedLabel,
+    [property: JsonPropertyName("confidence")] double Confidence,
+    [property: JsonPropertyName("heuristic_risk_score")] int HeuristicRiskScore,
+    [property: JsonPropertyName("assessment_path")] IReadOnlyList<string> AssessmentPath);
+
+public sealed record PythonActivityMovement(
+    [property: JsonPropertyName("sample_size")] int SampleSize,
+    [property: JsonPropertyName("change_rate")] double ChangeRate,
+    [property: JsonPropertyName("baseline_risk")] double BaselineRisk,
+    [property: JsonPropertyName("average_risk")] double AverageRisk,
+    [property: JsonPropertyName("next_risk_estimate")] double NextRiskEstimate,
+    [property: JsonPropertyName("movement")] string Movement,
+    [property: JsonPropertyName("fit_score")] double FitScore);
+
+public sealed record PythonAiAnalyzeResponse(
+    [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("explanation")] string Explanation,
+    [property: JsonPropertyName("anomalies")] IReadOnlyList<string> Anomalies,
+    [property: JsonPropertyName("points_of_interest")] IReadOnlyList<string> PointsOfInterest,
+    [property: JsonPropertyName("related_resources")] IReadOnlyList<string> RelatedResources,
+    [property: JsonPropertyName("context_overview")] PythonContextOverview ContextOverview,
+    [property: JsonPropertyName("feature_vector")] IReadOnlyDictionary<string, double> FeatureVector,
+    [property: JsonPropertyName("grouping_insight")] PythonGroupingInsight GroupingInsight,
+    [property: JsonPropertyName("priority_assessment")] PythonPriorityAssessment PriorityAssessment,
+    [property: JsonPropertyName("activity_movement")] PythonActivityMovement ActivityMovement);
+
+public sealed record CombinedLogAnalysisResponse(
+    ResourceLogDetail Log,
+    AiAnalyzeResponse? TextAnalysis,
+    PythonAiAnalyzeResponse? MlAnalysis);
 
 public sealed record SavedLogDocument(
     [property: JsonPropertyName("_id")] string? Id,
