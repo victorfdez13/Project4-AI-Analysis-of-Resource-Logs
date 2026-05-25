@@ -32,28 +32,34 @@ public sealed class MongoPromptRepository
             ["createdByUserId"] = userId,
             ["createdByRole"] = role,
             ["sharedWithSupport"] = sharedWithSupport,
+            ["analysisId"] = Guid.NewGuid().ToString(),
+            ["analysisName"] = $"Analysis-{log.LogId}",
             ["dataset"] = dataset,
             ["logId"] = logId,
             ["prompt"] = prompt ?? "",
             ["analyzedAt"] = DateTimeOffset.UtcNow.ToString("o"),
-            ["originalLog"] = new BsonDocument
-            {
-                ["logId"] = log.LogId,
-                ["category"] = log.Category,
-                ["time"] = log.Time.ToString("o"),
-                ["message"] = log.Message,
-                ["level"] = log.Level,
-                ["mainEntityId"] = log.MainEntityId != null ? (BsonValue)log.MainEntityId : BsonNull.Value,
-                ["sessionId"] = log.SessionId != null ? (BsonValue)log.SessionId : BsonNull.Value,
-            },
+            ["selectedLogs"] = new BsonArray
+{
+    new BsonDocument
+    {
+        ["logId"] = log.LogId,
+        ["category"] = log.Category,
+        ["time"] = log.Time.ToString("o"),
+        ["message"] = log.Message,
+        ["level"] = log.Level,
+        ["mainEntityId"] = log.MainEntityId != null ? (BsonValue)log.MainEntityId : BsonNull.Value,
+        ["sessionId"] = log.SessionId != null ? (BsonValue)log.SessionId : BsonNull.Value,
+    }
+},
             ["analysis"] = new BsonDocument
-            {
-                ["summary"] = analysis.Summary,
-                ["explanation"] = analysis.Explanation,
-                ["anomalies"] = new BsonArray(analysis.Anomalies),
-                ["pointsOfInterest"] = new BsonArray(analysis.PointsOfInterest ?? []),
-                ["relatedResources"] = new BsonArray(analysis.RelatedResources),
-            }
+{
+    ["summary"] = analysis.Summary,
+    ["explanation"] = analysis.Explanation,
+    ["anomalies"] = new BsonArray(analysis.Anomalies),
+    ["pointsOfInterest"] = new BsonArray(analysis.PointsOfInterest ?? []),
+    ["relatedResources"] = new BsonArray(analysis.RelatedResources),
+    ["linkedEvidence"] = new BsonArray(analysis.RelatedResources),
+}
         };
 
         var filter = Builders<BsonDocument>.Filter.And(
