@@ -66,7 +66,10 @@ public sealed record AiAnalyzeRequest(
     [property: JsonPropertyName("resource_id")] string ResourceId,
     [property: JsonPropertyName("log_text")] string LogText,
     [property: JsonPropertyName("timestamp")] DateTimeOffset Timestamp,
-    [property: JsonPropertyName("metadata")] IReadOnlyDictionary<string, object?> Metadata);
+    [property: JsonPropertyName("metadata")] IReadOnlyDictionary<string, object?> Metadata,
+    [property: JsonPropertyName("selected_logs")] IReadOnlyList<IReadOnlyDictionary<string, object?>>? SelectedLogs = null,
+    [property: JsonPropertyName("active_filters")] IReadOnlyDictionary<string, object?>? ActiveFilters = null,
+    [property: JsonPropertyName("user_prompt")] string? UserPrompt = null);
 
 public sealed record AiAnalyzeResponse(
     [property: JsonPropertyName("summary")] string Summary,
@@ -135,13 +138,25 @@ public sealed record SavedLogDocument(
 public sealed record LogsBatchRequest(
     [property: JsonPropertyName("dataset")] string Dataset,
     [property: JsonPropertyName("logIds")] IReadOnlyList<int> LogIds,
-    [property: JsonPropertyName("prompt")] string? Prompt);
+    [property: JsonPropertyName("prompt")] string? Prompt,
+    [property: JsonPropertyName("level")] string? Level = null,
+    [property: JsonPropertyName("category")] string? Category = null,
+    [property: JsonPropertyName("search")] string? Search = null);
 
 public sealed record AiBatchAnalyzeResponse(
     [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("explanation")] string Explanation,
     [property: JsonPropertyName("anomalies")] IReadOnlyList<string> Anomalies,
     [property: JsonPropertyName("points_of_interest")] IReadOnlyList<string> PointsOfInterest,
+    [property: JsonPropertyName("related_resources")] IReadOnlyList<string> RelatedResources,
     [property: JsonPropertyName("log_count")] int LogCount);
+
+public sealed record LogAnalyzeRequest(
+    [property: JsonPropertyName("prompt")] string? Prompt,
+    [property: JsonPropertyName("selectedLogIds")] IReadOnlyList<int>? SelectedLogIds = null,
+    [property: JsonPropertyName("level")] string? Level = null,
+    [property: JsonPropertyName("category")] string? Category = null,
+    [property: JsonPropertyName("search")] string? Search = null);
 
 public sealed record SavedAnalysisResult(
     string Id,

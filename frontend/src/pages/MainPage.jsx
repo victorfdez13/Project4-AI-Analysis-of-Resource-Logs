@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Navbar from "../components/Navbar";
-
-const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL?.trim() || "http://127.0.0.1:5005"
-).replace(/\/+$/, "");
-const API_KEY = import.meta.env.VITE_API_KEY?.trim() || "key-admin-full";
+import { requestJson } from "../apiClient";
 const PAGE_SIZE = 20;
 
 const severityOptions = [
@@ -64,62 +60,6 @@ const analysisFocusOptions = [
       "Focus on off-hours or weekend activity and whether the timing looks unusual.",
   },
 ];
-
-function buildUrl(path, query = {}) {
-  const params = new URLSearchParams();
-
-  Object.entries(query).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "") {
-      params.set(key, String(value));
-    }
-  });
-
-  const queryString = params.toString();
-  return `${API_BASE_URL}${path}${queryString ? `?${queryString}` : ""}`;
-}
-
-function tryParseJson(text) {
-  if (!text) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-async function requestJson(path, query = {}, options = {}) {
-  const headers = {
-    Accept: "application/json",
-    ...options.headers,
-  };
-
-  if (API_KEY && !headers["X-Api-Key"]) {
-    headers["X-Api-Key"] = API_KEY;
-  }
-
-  const response = await fetch(buildUrl(path, query), {
-    ...options,
-    headers,
-  });
-
-  const responseText = await response.text();
-  const payload = tryParseJson(responseText);
-
-  if (!response.ok) {
-    throw new Error(
-      payload?.message ||
-        payload?.detail ||
-        payload?.title ||
-        responseText ||
-        `Request failed with HTTP ${response.status}.`
-    );
-  }
-
-  return payload;
-}
 
 function formatDateTime(value) {
   if (!value) {
@@ -227,6 +167,9 @@ export default function MainPage() {
     setAnalysisSourceLabel("");
     setSelectedAnalysisFocus("");
     setUserPrompt("");
+    setSelectedLogIds(new Set());
+    setBulkAnalysis(null);
+    setBulkAnalysisError("");
     setPageInfo((current) => ({
       ...current,
       skip: 0,
@@ -388,17 +331,28 @@ export default function MainPage() {
       setAnalyzing(true);
       setAnalysisError("");
 
-      const params = { dataset: activeDataset };
       const effectivePrompt = buildAnalysisPrompt(
         selectedAnalysisFocus,
         userPrompt
       );
-      if (effectivePrompt) params.prompt = effectivePrompt;
+      const body = {
+        ...(effectivePrompt ? { prompt: effectivePrompt } : {}),
+        ...(selectedLogIds.size > 0
+          ? { selectedLogIds: [...selectedLogIds] }
+          : {}),
+        ...(severity ? { level: severity } : {}),
+        ...(resource ? { category: resource } : {}),
+        ...(keyword.trim() ? { search: keyword.trim() } : {}),
+      };
 
       const response = await requestJson(
         `/api/logs/${selectedLogId}/analyze`,
-        params,
-        { method: "POST" }
+        { dataset: activeDataset },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }
       );
 
       setAnalysis({
@@ -431,13 +385,27 @@ export default function MainPage() {
         dataset: activeDataset,
         logIds: [...selectedLogIds],
         ...(effectivePrompt ? { prompt: effectivePrompt } : {}),
+        ...(severity ? { level: severity } : {}),
+        ...(resource ? { category: resource } : {}),
+        ...(keyword.trim() ? { search: keyword.trim() } : {}),
       };
       const result = await requestJson(
         "/api/logs/analyze-batch",
         {},
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }
       );
-      setBulkAnalysis(result);
+      setBulkAnalysis({
+        ...result,
+        anomalies: result?.anomalies || [],
+        points_of_interest:
+          result?.points_of_interest || result?.pointsOfInterest || [],
+        related_resources:
+          result?.related_resources || result?.relatedResources || [],
+      });
     } catch (error) {
       setBulkAnalysisError(error.message || "Unable to analyze selected logs.");
     } finally {
@@ -560,6 +528,12 @@ export default function MainPage() {
                 value={activeDataset}
                 onChange={(e) => {
                   setActiveDataset(e.target.value);
+                  setSelectedLogIds(new Set());
+                  setBulkAnalysis(null);
+                  setBulkAnalysisError("");
+                  setAnalysis(null);
+                  setAnalysisError("");
+                  setAnalysisSourceLabel("");
                   setPageInfo((current) => ({ ...current, skip: 0 }));
                 }}
                 disabled={loadingPage || datasets.length === 0}
@@ -591,7 +565,7 @@ export default function MainPage() {
             <div className="border-b border-[#d9e1e7] bg-[#fbfcfd] px-6 py-5 flex items-center justify-between">
               <h2 className="text-xl font-semibold text-[#0e5a74]">Logs</h2>
               <span className="text-xs font-semibold uppercase tracking-wide text-[#0e5a74]/65">
-                Single-log analysis
+                Selected: {selectedLogIds.size}
               </span>
             </div>
             <div className="px-6 py-5">
@@ -694,7 +668,7 @@ export default function MainPage() {
 
                     {loadingLogs && (
                       <tr>
-                        <td colSpan={4} className="px-5 py-6 text-center text-sm text-[#1f2a37]/40">
+                        <td colSpan={5} className="px-5 py-6 text-center text-sm text-[#1f2a37]/40">
                           Loading logs...
                         </td>
                       </tr>
@@ -875,16 +849,33 @@ export default function MainPage() {
               </p>
             </div>
             <div className="mt-3">
-              <button
-                type="button"
-                data-testid="analyze-button"
-                onClick={handleAnalyze}
-                disabled={!selectedLogId || analyzing}
-                className="w-full rounded-lg px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
-                style={{ background: "linear-gradient(135deg, #0e5a74, #e9782e)" }}
-              >
-                {analyzing ? "Analyzing..." : "Analyze with Python AI"}
-              </button>
+              <div className="grid gap-2">
+                <button
+                  type="button"
+                  data-testid="analyze-button"
+                  onClick={handleAnalyze}
+                  disabled={!selectedLogId || analyzing}
+                  className="w-full rounded-lg px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+                  style={{ background: "linear-gradient(135deg, #0e5a74, #e9782e)" }}
+                >
+                  {analyzing ? "Analyzing..." : "Analyze selected log"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBulkAnalyze}
+                  disabled={selectedLogIds.size === 0 || bulkAnalyzing}
+                  className="w-full rounded-lg border border-[#d9e1e7] bg-[#eef3f6] px-4 py-3 text-sm font-semibold text-[#0e5a74] transition-colors hover:bg-[#e3ebf0] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {bulkAnalyzing
+                    ? "Analyzing selected logs..."
+                    : `Analyze selected logs (${selectedLogIds.size})`}
+                </button>
+              </div>
+              <p className="mt-2 text-xs leading-relaxed text-[#1f2a37]/55">
+                Use the checkboxes in the log table to add extra context so the
+                analysis can summarize patterns across related events, not just
+                the currently highlighted entry.
+              </p>
             </div>
           </div>
 
@@ -901,16 +892,24 @@ export default function MainPage() {
               <div className="rounded-lg border border-[#d9e1e7] bg-[#f4f6f8] px-4 py-4 flex flex-col gap-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold uppercase tracking-wide text-[#0e5a74]">
-                    Bulk Analysis — {bulkAnalysis.logCount} log(s)
+                    Bulk Analysis - {bulkAnalysis.logCount} log(s)
                   </span>
                   <button
                     onClick={() => { setBulkAnalysis(null); setBulkAnalysisError(""); }}
                     className="text-[#1f2a37]/30 hover:text-[#1f2a37]/60 text-sm"
                   >
-                    ✕
+                    x
                   </button>
                 </div>
                 <p className="text-sm text-[#1f2a37]/80 leading-relaxed">{bulkAnalysis.summary}</p>
+                {bulkAnalysis.explanation && (
+                  <div>
+                    <p className="text-xs font-semibold text-[#0e5a74] mb-1">Explanation</p>
+                    <p className="text-sm text-[#1f2a37]/70 leading-relaxed">
+                      {bulkAnalysis.explanation}
+                    </p>
+                  </div>
+                )}
                 {bulkAnalysis.anomalies?.length > 0 && (
                   <div>
                     <p className="text-xs font-semibold text-[#0e5a74] mb-1">Anomalies</p>
@@ -924,6 +923,16 @@ export default function MainPage() {
                     <p className="text-xs font-semibold text-[#0e5a74] mb-1">Points of Interest</p>
                     <ul className="list-disc pl-4 text-sm text-[#1f2a37]/70 space-y-0.5">
                       {bulkAnalysis.points_of_interest.map((p, i) => <li key={i}>{p}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {bulkAnalysis.related_resources?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-[#0e5a74] mb-1">Related Resources</p>
+                    <ul className="list-disc pl-4 text-sm text-[#1f2a37]/70 space-y-0.5">
+                      {bulkAnalysis.related_resources.map((resourceId, i) => (
+                        <li key={`${resourceId}-${i}`}>{resourceId}</li>
+                      ))}
                     </ul>
                   </div>
                 )}

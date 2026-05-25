@@ -19,15 +19,26 @@ public sealed class MongoPromptRepository
 
     private void EnsureIndexes()
     {
+        var existingIndexNames = _collection
+            .Indexes
+            .List()
+            .ToList()
+            .Select(document => document.GetValue("name", string.Empty).AsString)
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (existingIndexNames.Contains("dataset_logId_unique"))
+        {
+            _collection.Indexes.DropOne("dataset_logId_unique");
+        }
+
         _collection.Indexes.CreateMany(new[]
         {
             new CreateIndexModel<BsonDocument>(
                 Builders<BsonDocument>.IndexKeys
-                    .Ascending("dataset")
-                    .Ascending("logId"),
+                    .Ascending("analysisId"),
                 new CreateIndexOptions
                 {
-                    Name = "dataset_logId_unique",
+                    Name = "analysisId_unique",
                     Unique = true
                 }),
             new CreateIndexModel<BsonDocument>(
@@ -37,6 +48,22 @@ public sealed class MongoPromptRepository
                 new CreateIndexOptions
                 {
                     Name = "createdByUserId_analyzedAt"
+                }),
+            new CreateIndexModel<BsonDocument>(
+                Builders<BsonDocument>.IndexKeys
+                    .Ascending("dataset")
+                    .Descending("analyzedAt"),
+                new CreateIndexOptions
+                {
+                    Name = "dataset_analyzedAt"
+                }),
+            new CreateIndexModel<BsonDocument>(
+                Builders<BsonDocument>.IndexKeys
+                    .Ascending("dataset")
+                    .Ascending("logId"),
+                new CreateIndexOptions
+                {
+                    Name = "dataset_logId"
                 }),
         });
     }
@@ -50,8 +77,11 @@ public sealed class MongoPromptRepository
         string role,
         bool sharedWithSupport,
         string? prompt,
+        IReadOnlyList<ResourceLogDetail>? selectedLogs,
+        IReadOnlyDictionary<string, object?>? activeFilters,
         CancellationToken cancellationToken)
     {
+        var selectedLogDocuments = BuildSelectedLogArray(log, selectedLogs);
         var document = new BsonDocument
         {
             ["createdByUserId"] = userId,
@@ -63,19 +93,7 @@ public sealed class MongoPromptRepository
             ["logId"] = logId,
             ["prompt"] = prompt ?? "",
             ["analyzedAt"] = DateTimeOffset.UtcNow.ToString("o"),
-            ["selectedLogs"] = new BsonArray
-            {
-                new BsonDocument
-                {
-                    ["logId"] = log.LogId,
-                    ["category"] = log.Category,
-                    ["time"] = log.Time.ToString("o"),
-                    ["message"] = log.Message,
-                    ["level"] = log.Level,
-                    ["mainEntityId"] = log.MainEntityId != null ? (BsonValue)log.MainEntityId : BsonNull.Value,
-                    ["sessionId"] = log.SessionId != null ? (BsonValue)log.SessionId : BsonNull.Value,
-                }
-            },
+            ["selectedLogs"] = selectedLogDocuments,
             ["analysis"] = new BsonDocument
             {
                 ["summary"] = analysis.Summary,
@@ -86,15 +104,14 @@ public sealed class MongoPromptRepository
             }
         };
 
-        var filter = Builders<BsonDocument>.Filter.And(
-            Builders<BsonDocument>.Filter.Eq("dataset", dataset),
-            Builders<BsonDocument>.Filter.Eq("logId", logId));
+        if (activeFilters is { Count: > 0 })
+        {
+            document["activeFilters"] = BuildFiltersDocument(activeFilters);
+        }
 
-        await _collection.ReplaceOneAsync(
-            filter,
+        await _collection.InsertOneAsync(
             document,
-            new ReplaceOptions { IsUpsert = true },
-            cancellationToken);
+            cancellationToken: cancellationToken);
     }
 
     public async Task<SavedAnalysisResult?> GetAnalysisAsync(
@@ -108,6 +125,7 @@ public sealed class MongoPromptRepository
 
         var document = await _collection
             .Find(filter)
+            .SortByDescending(d => d["analyzedAt"])
             .FirstOrDefaultAsync(cancellationToken);
 
         if (document is null)
@@ -132,6 +150,56 @@ public sealed class MongoPromptRepository
         return documents.Select(MapDocument).ToList();
     }
 
+    private static BsonArray BuildSelectedLogArray(
+        ResourceLogDetail anchorLog,
+        IReadOnlyList<ResourceLogDetail>? selectedLogs)
+    {
+        var seenLogIds = new HashSet<int>();
+        var orderedLogs = new List<ResourceLogDetail> { anchorLog };
+
+        if (selectedLogs is { Count: > 0 })
+        {
+            orderedLogs.AddRange(selectedLogs);
+        }
+
+        var documents = new BsonArray();
+        foreach (var log in orderedLogs)
+        {
+            if (!seenLogIds.Add(log.LogId))
+            {
+                continue;
+            }
+
+            documents.Add(new BsonDocument
+            {
+                ["dataset"] = log.Dataset,
+                ["logId"] = log.LogId,
+                ["category"] = log.Category,
+                ["time"] = log.Time.ToString("o"),
+                ["message"] = log.Message,
+                ["level"] = log.Level,
+                ["mainEntityId"] = log.MainEntityId != null ? (BsonValue)log.MainEntityId : BsonNull.Value,
+                ["impersonatorMainEntityId"] = log.ImpersonatorMainEntityId != null ? (BsonValue)log.ImpersonatorMainEntityId : BsonNull.Value,
+                ["sessionId"] = log.SessionId != null ? (BsonValue)log.SessionId : BsonNull.Value,
+            });
+        }
+
+        return documents;
+    }
+
+    private static BsonDocument BuildFiltersDocument(IReadOnlyDictionary<string, object?> activeFilters)
+    {
+        var document = new BsonDocument();
+        foreach (var (key, value) in activeFilters)
+        {
+            document[key] = value is null
+                ? BsonNull.Value
+                : BsonTypeMapper.MapToBsonValue(value);
+        }
+
+        return document;
+    }
+
     private static SavedAnalysisResult MapDocument(BsonDocument document)
     {
         var analysisDoc = document["analysis"].AsBsonDocument;
@@ -152,7 +220,7 @@ public sealed class MongoPromptRepository
             relatedResources);
 
         return new SavedAnalysisResult(
-            document["_id"].ToString()!,
+            document.Contains("analysisId") ? document["analysisId"].AsString : document["_id"].ToString()!,
             document["dataset"].AsString,
             document["logId"].ToInt32(),
             document["analyzedAt"].AsString,

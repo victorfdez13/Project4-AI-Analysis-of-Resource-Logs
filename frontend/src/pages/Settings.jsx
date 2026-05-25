@@ -1,10 +1,6 @@
 import { useEffect, useState } from "react";
 import Navbar from "../components/Navbar";
-
-const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL?.trim() || "http://127.0.0.1:5005"
-).replace(/\/+$/, "");
-const API_KEY = import.meta.env.VITE_API_KEY?.trim() || "key-admin-full";
+import { requestJson } from "../apiClient";
 
 const levelLabels = {
   0: "Trace",
@@ -14,62 +10,6 @@ const levelLabels = {
   4: "Error",
   5: "Critical",
 };
-
-function buildUrl(path, query = {}) {
-  const params = new URLSearchParams();
-
-  Object.entries(query).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "") {
-      params.set(key, String(value));
-    }
-  });
-
-  const queryString = params.toString();
-  return `${API_BASE_URL}${path}${queryString ? `?${queryString}` : ""}`;
-}
-
-function tryParseJson(text) {
-  if (!text) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-async function requestJson(path, query = {}, options = {}) {
-  const headers = {
-    Accept: "application/json",
-    ...options.headers,
-  };
-
-  if (API_KEY && !headers["X-Api-Key"]) {
-    headers["X-Api-Key"] = API_KEY;
-  }
-
-  const response = await fetch(buildUrl(path, query), {
-    ...options,
-    headers,
-  });
-
-  const responseText = await response.text();
-  const payload = tryParseJson(responseText);
-
-  if (!response.ok) {
-    throw new Error(
-      payload?.message ||
-        payload?.detail ||
-        payload?.title ||
-        responseText ||
-        `Request failed with HTTP ${response.status}.`
-    );
-  }
-
-  return payload;
-}
 
 function formatLevelDisplay(level) {
   const normalizedLevel = String(level ?? "").trim();

@@ -2,6 +2,10 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import "./login.css";
 
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL?.trim() || "http://127.0.0.1:5005"
+).replace(/\/+$/, "");
+
 export default function Register() {
   const navigate = useNavigate();
 
@@ -26,7 +30,7 @@ export default function Register() {
     try {
       setLoading(true);
 
-      const response = await fetch("http://localhost:5005/register", {
+      const response = await fetch(`${API_BASE_URL}/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -45,8 +49,6 @@ export default function Register() {
       }
 
       setMessage("Account created successfully!");
-
-      console.log("API KEY:", data.apiKey);
 
       setTimeout(() => {
         navigate("/login");
@@ -99,7 +101,7 @@ export default function Register() {
 
             <input
               type="password"
-              placeholder="••••••••"
+              placeholder="********"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />

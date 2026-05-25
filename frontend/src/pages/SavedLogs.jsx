@@ -1,34 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
-
-const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL?.trim() || "http://localhost:5005"
-).replace(/\/+$/, "");
-
-const API_KEY = "key-admin-full";
-
-async function requestJson(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      Accept: "application/json",
-      "X-Api-Key": API_KEY,
-      ...options.headers,
-    },
-    ...options,
-  });
-
-  const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
-
-  if (!response.ok) {
-    throw new Error(
-      payload?.message || payload?.title || `HTTP ${response.status}`
-    );
-  }
-
-  return payload;
-}
+import { requestJson } from "../apiClient";
 
 export default function SavedLogs() {
   const navigate = useNavigate();
@@ -64,9 +37,10 @@ export default function SavedLogs() {
       try {
         setLoading(true);
         setError("");
-        const response = await requestJson(
-          `/api/logs/analyses?dataset=${encodeURIComponent(activeDataset)}&limit=50`
-        );
+        const response = await requestJson("/api/logs/analyses", {
+          dataset: activeDataset,
+          limit: 50,
+        });
         const list = response?.analyses || [];
         setAnalyses(list);
         setSelected(list[0] || null);
@@ -85,7 +59,7 @@ export default function SavedLogs() {
   const filtered = analyses.filter(
     (a) =>
       String(a.logId).includes(search) ||
-      a.analysis?.summary?.toLowerCase().includes(search.toLowerCase())
+      (a.analysis?.summary || "").toLowerCase().includes(search.toLowerCase())
   );
 
   const clearFilters = () => {
@@ -230,7 +204,7 @@ export default function SavedLogs() {
                 onClick={() => setSelected(null)}
                 className="text-[#1f2a37]/30 hover:text-[#1f2a37]/60 text-lg leading-none mt-0.5"
               >
-                ✕
+                x
               </button>
             )}
           </div>
@@ -239,7 +213,7 @@ export default function SavedLogs() {
             {selected ? (
               <div className="flex flex-col gap-5">
                 <p className="text-[#1f2a37]/50 text-sm">
-                  {selected.dataset} · Analyzed{" "}
+                  {selected.dataset} | Analyzed{" "}
                   {new Date(selected.analyzedAt).toLocaleString()}
                 </p>
 

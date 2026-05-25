@@ -108,7 +108,7 @@ export default function Login() {
               <input
                 type={showPassword ? 'text' : 'password'}
                 id="password"
-                placeholder="••••••••"
+                placeholder="********"
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -143,7 +143,7 @@ export default function Login() {
             className="primary-btn"
             disabled={loading}
           >
-            {loading ? 'Signing in…' : 'Sign in'}
+            {loading ? 'Signing in...' : 'Sign in'}
           </button>
 
           {/* Sign up link */}

@@ -197,6 +197,99 @@ app.MapPost("/register", (RegisterRequest request, UserStore userStore) =>
     });
 });
 
+var datasetRoutes = app.MapGroup("/api/datasets").RequireAuthorization("AdminOnly");
+
+datasetRoutes.MapGet("/", (DatasetStore datasetStore) =>
+{
+    return Results.Ok(new
+    {
+        datasets = datasetStore.All()
+    });
+});
+
+datasetRoutes.MapPost("/", (DatasetRegistrationRequest request, DatasetStore datasetStore) =>
+{
+    var error = datasetStore.Add(request.Name ?? string.Empty);
+    if (error is not null)
+    {
+        return Results.BadRequest(new { message = error });
+    }
+
+    return Results.Ok(new
+    {
+        datasets = datasetStore.All()
+    });
+});
+
+var userRoutes = app.MapGroup("/api/users").RequireAuthorization("AdminOnly");
+
+userRoutes.MapGet("/", (UserStore userStore) =>
+{
+    var users = userStore
+        .All()
+        .Select(user => new
+        {
+            username = user.Username,
+            role = user.Role,
+            allowedDatasets = user.AllowedDatasets
+        });
+
+    return Results.Ok(new { users });
+});
+
+userRoutes.MapPost("/", (UserRecord request, UserStore userStore) =>
+{
+    var (user, error) = userStore.Create(new UserRecord
+    {
+        Username = request.Username?.Trim() ?? string.Empty,
+        Password = request.Password ?? string.Empty,
+        Role = request.Role,
+        AllowedDatasets = request.AllowedDatasets ?? new List<string>()
+    });
+
+    if (error is not null || user is null)
+    {
+        return Results.BadRequest(new { message = error ?? "Unable to create user." });
+    }
+
+    return Results.Ok(new
+    {
+        username = user.Username,
+        role = user.Role,
+        allowedDatasets = user.AllowedDatasets
+    });
+});
+
+userRoutes.MapPut("/{username}", (string username, UserRecord request, UserStore userStore) =>
+{
+    var (user, error) = userStore.Update(username, request);
+    if (error is not null || user is null)
+    {
+        return Results.BadRequest(new { message = error ?? "Unable to update user." });
+    }
+
+    return Results.Ok(new
+    {
+        username = user.Username,
+        role = user.Role,
+        allowedDatasets = user.AllowedDatasets
+    });
+});
+
+userRoutes.MapDelete("/{username}", (string username, HttpContext context, UserStore userStore) =>
+{
+    var currentUsername = context.User.Identity?.Name;
+    if (string.Equals(currentUsername, username, StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { message = "You cannot delete your own account." });
+    }
+
+    var removed = userStore.Delete(username);
+    return removed
+        ? Results.NoContent()
+        : Results.NotFound(new { message = $"User '{username}' was not found." });
+});
+
 // All /api/logs routes require authentication
 var logRoutes = app.MapGroup("/api/logs").RequireAuthorization();
 
@@ -279,11 +372,12 @@ logRoutes.MapGet("/summary", async (
     }
 }).RequireAuthorization("ViewerAccess");
 
-// Analyze endpoint — calls both ai-service (LLM text) and python-ai (ML) in parallel
+// Analyze endpoint - uses Python AI for structured analysis and ai-service for text generation.
 logRoutes.MapPost("/{id:int}/analyze", async (
     int id,
     string? dataset,
     string? prompt,
+    LogAnalyzeRequest? request,
     HttpContext context,
     SqlLogRepository repository,
     PythonAiAnalysisClient pythonAiClient,
@@ -300,7 +394,26 @@ logRoutes.MapPost("/{id:int}/analyze", async (
         if (log is null)
             return Results.NotFound(new { message = $"Log with id {id} was not found." });
 
-        var analysis = await pythonAiClient.AnalyzeAsync(log, prompt, cancellationToken);
+        var effectivePrompt = NormalizeOptionalText(request?.Prompt) ?? NormalizeOptionalText(prompt);
+        var selectedLogs = await LoadSelectedLogsAsync(
+            repository,
+            log.Dataset,
+            request?.SelectedLogIds,
+            id,
+            cancellationToken);
+        var activeFilters = BuildActiveFilters(
+            log.Dataset,
+            request?.Level,
+            request?.Category,
+            request?.Search,
+            request?.SelectedLogIds);
+
+        var analysis = await pythonAiClient.AnalyzeAsync(
+            log,
+            effectivePrompt,
+            selectedLogs,
+            activeFilters,
+            cancellationToken);
         var savedAnalysis = new AiAnalyzeResponse(
             analysis.Summary,
             analysis.Explanation,
@@ -319,7 +432,9 @@ logRoutes.MapPost("/{id:int}/analyze", async (
             userId,
             userRole,
             sharedWithSupport,
-            prompt,
+            effectivePrompt,
+            selectedLogs,
+            activeFilters,
             cancellationToken);
 
         return Results.Ok(new LogAnalysisResponse(log, analysis));
@@ -336,7 +451,95 @@ logRoutes.MapPost("/{id:int}/analyze", async (
             statusCode: StatusCodes.Status503ServiceUnavailable);
     }
 })
-.RequireAuthorization("AnalystOrAdmin");
+.RequireAuthorization("ViewerAccess");
+
+logRoutes.MapPost("/analyze-batch", async (
+    LogsBatchRequest request,
+    HttpContext context,
+    SqlLogRepository repository,
+    PythonAiAnalysisClient pythonAiClient,
+    MongoPromptRepository mongoRepository,
+    CancellationToken cancellationToken) =>
+{
+    if (!IsDatasetAllowed(context, request.Dataset))
+        return Results.Forbid();
+
+    if (request.LogIds is not { Count: > 0 })
+        return Results.BadRequest(new { message = "Select at least one log to analyze." });
+
+    try
+    {
+        var selectedLogs = await LoadSelectedLogsAsync(
+            repository,
+            request.Dataset,
+            request.LogIds,
+            excludedLogId: null,
+            cancellationToken);
+
+        if (selectedLogs.Count == 0)
+            return Results.BadRequest(new { message = "None of the selected logs could be loaded." });
+
+        var anchorLog = ChooseAnchorLog(selectedLogs);
+        var contextLogs = selectedLogs
+            .Where(log => log.LogId != anchorLog.LogId)
+            .ToList();
+        var effectivePrompt = NormalizeOptionalText(request.Prompt);
+        var activeFilters = BuildActiveFilters(
+            anchorLog.Dataset,
+            request.Level,
+            request.Category,
+            request.Search,
+            request.LogIds);
+
+        var analysis = await pythonAiClient.AnalyzeAsync(
+            anchorLog,
+            effectivePrompt,
+            contextLogs,
+            activeFilters,
+            cancellationToken);
+        var savedAnalysis = new AiAnalyzeResponse(
+            analysis.Summary,
+            analysis.Explanation,
+            analysis.Anomalies,
+            analysis.PointsOfInterest,
+            analysis.RelatedResources);
+        var userId = context.User.Identity?.Name ?? "unknown";
+        var userRole = context.User.FindFirst(ClaimTypes.Role)?.Value ?? UserRoles.Customer;
+        var sharedWithSupport = string.Equals(userRole, UserRoles.Customer, StringComparison.OrdinalIgnoreCase);
+
+        await mongoRepository.SaveAnalysisAsync(
+            anchorLog.Dataset,
+            anchorLog.LogId,
+            anchorLog,
+            savedAnalysis,
+            userId,
+            userRole,
+            sharedWithSupport,
+            effectivePrompt,
+            selectedLogs,
+            activeFilters,
+            cancellationToken);
+
+        return Results.Ok(new AiBatchAnalyzeResponse(
+            analysis.Summary,
+            analysis.Explanation,
+            analysis.Anomalies,
+            analysis.PointsOfInterest,
+            analysis.RelatedResources,
+            selectedLogs.Count));
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { message = exception.Message });
+    }
+    catch (ServiceUnavailableException exception)
+    {
+        return Results.Problem(
+            title: "Python AI service unavailable",
+            detail: exception.Message,
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+}).RequireAuthorization("ViewerAccess");
 
 // List all saved analyses for a dataset from MongoDB
 logRoutes.MapGet("/analyses", async (
@@ -469,11 +672,94 @@ static bool IsDatasetAllowed(HttpContext context, string? dataset)
     return allowed.Contains(dataset, StringComparer.OrdinalIgnoreCase);
 }
 
+static async Task<IReadOnlyList<ResourceLogDetail>> LoadSelectedLogsAsync(
+    SqlLogRepository repository,
+    string dataset,
+    IReadOnlyList<int>? logIds,
+    int? excludedLogId,
+    CancellationToken cancellationToken)
+{
+    if (logIds is not { Count: > 0 })
+    {
+        return [];
+    }
+
+    var logs = new List<ResourceLogDetail>();
+    foreach (var logId in logIds.Distinct())
+    {
+        if (excludedLogId.HasValue && logId == excludedLogId.Value)
+        {
+            continue;
+        }
+
+        var log = await repository.GetLogByIdAsync(dataset, logId, cancellationToken);
+        if (log is not null)
+        {
+            logs.Add(log);
+        }
+    }
+
+    return logs;
+}
+
+static IReadOnlyDictionary<string, object?> BuildActiveFilters(
+    string dataset,
+    string? level,
+    string? category,
+    string? search,
+    IReadOnlyList<int>? selectedLogIds)
+{
+    var filters = new Dictionary<string, object?>
+    {
+        ["dataset"] = dataset
+    };
+
+    var normalizedLevel = NormalizeOptionalText(level);
+    var normalizedCategory = NormalizeOptionalText(category);
+    var normalizedSearch = NormalizeOptionalText(search);
+
+    if (normalizedLevel is not null)
+    {
+        filters["level"] = normalizedLevel;
+    }
+
+    if (normalizedCategory is not null)
+    {
+        filters["category"] = normalizedCategory;
+    }
+
+    if (normalizedSearch is not null)
+    {
+        filters["search"] = normalizedSearch;
+    }
+
+    var distinctLogIds = selectedLogIds?.Distinct().ToArray();
+    if (distinctLogIds is { Length: > 0 })
+    {
+        filters["selectedLogIds"] = distinctLogIds;
+    }
+
+    return filters;
+}
+
+static string? NormalizeOptionalText(string? value) =>
+    string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+static ResourceLogDetail ChooseAnchorLog(IReadOnlyList<ResourceLogDetail> logs) =>
+    logs
+        .OrderByDescending(log => ParseLevelValue(log.Level))
+        .ThenByDescending(log => log.Time)
+        .First();
+
+static int ParseLevelValue(string? level) =>
+    int.TryParse(level, out var parsedLevel) ? parsedLevel : -1;
+
 public partial class Program { }
 
 public sealed record LoginRequest(string Username, string Password);
+public sealed record DatasetRegistrationRequest(string Name);
 
-// API key authentication handler — reads user config and attaches dataset claims
+// API key authentication handler - reads user config and attaches dataset claims.
 public class ApiKeyAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
     private const string ApiKeyHeader = "X-Api-Key";

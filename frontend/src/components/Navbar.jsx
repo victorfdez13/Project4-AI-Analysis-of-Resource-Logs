@@ -33,6 +33,7 @@ export default function Navbar({ active }) {
         setMenuOpen(false);
       }
     }
+
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
@@ -60,7 +61,7 @@ export default function Navbar({ active }) {
         <div className="w-5 h-5 rounded-full bg-[#e9782e]" />
         <span className="text-white font-bold text-sm">SpeedAdmin</span>
         <span className="text-white/60 text-xs hidden md:inline">
-          · Internal Staff Portal
+          | Internal Staff Portal
         </span>
       </div>
 
@@ -89,9 +90,11 @@ export default function Navbar({ active }) {
         >
           <div className="hidden sm:flex flex-col items-end leading-tight">
             <span className="text-white text-sm font-semibold">
-              {user?.username || "—"}
+              {user?.username || "-"}
             </span>
-            <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold ${badgeClass}`}>
+            <span
+              className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold ${badgeClass}`}
+            >
               {roleLabel}
             </span>
           </div>
@@ -103,7 +106,9 @@ export default function Navbar({ active }) {
         {menuOpen && (
           <div className="absolute right-0 top-full mt-2 w-72 bg-white border border-[#d9e1e7] rounded-xl shadow-lg overflow-hidden z-50">
             <div className="px-4 py-3 border-b border-[#e8edf1] bg-[#fbfcfd]">
-              <p className="text-[#1f2a37] font-semibold text-sm">{user?.username}</p>
+              <p className="text-[#1f2a37] font-semibold text-sm">
+                {user?.username}
+              </p>
               <p className="text-[#1f2a37]/50 text-xs mt-0.5">{roleLabel}</p>
             </div>
             <div className="px-4 py-3 border-b border-[#e8edf1]">
@@ -112,16 +117,15 @@ export default function Navbar({ active }) {
               </p>
               <ul className="text-xs text-[#1f2a37]/80 space-y-1">
                 <li>
-                  • <strong>Datasets:</strong>{" "}
+                  <strong>Datasets:</strong>{" "}
                   {(user?.allowedDatasets || []).join(", ") || "none"}
                 </li>
                 <li>
-                  •{" "}
                   {role === "admin"
                     ? "Full access, can manage users and dataset assignments"
                     : role === "support_agent"
                       ? "Read and analyze logs in assigned customer datasets"
-                      : "Read-only access to your own dataset"}
+                      : "Can view, prompt, and save analyses within the assigned dataset"}
                 </li>
               </ul>
             </div>

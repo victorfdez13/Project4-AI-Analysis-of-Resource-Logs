@@ -20,6 +20,8 @@ public sealed class PythonAiAnalysisClient
     public async Task<PythonAiAnalyzeResponse> AnalyzeAsync(
         ResourceLogDetail log,
         string? prompt,
+        IReadOnlyList<ResourceLogDetail>? selectedLogs,
+        IReadOnlyDictionary<string, object?>? activeFilters,
         CancellationToken cancellationToken)
     {
         var request = new AiAnalyzeRequest(
@@ -38,7 +40,10 @@ public sealed class PythonAiAnalysisClient
                 ["entities"] = log.Entities,
                 ["changes"] = log.Changes,
                 ["prompt"] = prompt
-            });
+            },
+            SelectedLogs: BuildSelectedLogsPayload(selectedLogs) ?? [],
+            ActiveFilters: activeFilters ?? new Dictionary<string, object?>(),
+            UserPrompt: prompt);
 
         try
         {
@@ -82,5 +87,31 @@ public sealed class PythonAiAnalysisClient
         {
             throw new ServiceUnavailableException("Invalid response from Python AI service", ex);
         }
+    }
+
+    private static IReadOnlyList<IReadOnlyDictionary<string, object?>>? BuildSelectedLogsPayload(
+        IReadOnlyList<ResourceLogDetail>? selectedLogs)
+    {
+        if (selectedLogs == null || selectedLogs.Count == 0)
+        {
+            return null;
+        }
+
+        return selectedLogs
+            .Select(log => (IReadOnlyDictionary<string, object?>)new Dictionary<string, object?>
+            {
+                ["dataset"] = log.Dataset,
+                ["logId"] = log.LogId,
+                ["category"] = log.Category,
+                ["message"] = log.Message,
+                ["time"] = log.Time.ToString("o"),
+                ["level"] = log.Level,
+                ["mainEntityId"] = log.MainEntityId,
+                ["impersonatorMainEntityId"] = log.ImpersonatorMainEntityId,
+                ["sessionId"] = log.SessionId,
+                ["changes"] = log.Changes,
+                ["entities"] = log.Entities,
+            })
+            .ToList();
     }
 }
