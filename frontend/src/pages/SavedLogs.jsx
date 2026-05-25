@@ -229,9 +229,9 @@ export default function SavedLogs() {
 
                 <div>
                   <h4 className="text-sm font-semibold text-[#0e5a74] mb-2">Related Resources</h4>
-                  {selected.analysis?.relatedResources?.length > 0 ? (
+                  {(selected.analysis?.related_resources || selected.analysis?.relatedResources || []).length > 0 ? (
                     <ul className="list-disc pl-5 text-sm text-[#1f2a37]/70 space-y-1">
-                      {selected.analysis.relatedResources.map((r, i) => (
+                      {(selected.analysis?.related_resources || selected.analysis?.relatedResources || []).map((r, i) => (
                         <li key={i}>{r}</li>
                       ))}
                     </ul>

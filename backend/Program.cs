@@ -9,10 +9,6 @@ using System.Text.Encodings.Web;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var users = builder.Configuration
-    .GetSection("Users")
-    .Get<List<UserConfig>>() ?? new();
-
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
@@ -28,6 +24,8 @@ builder.Services.AddCors(options =>
 });
 builder.Services.AddOpenApi();
 builder.Services.Configure<BackendOptions>(builder.Configuration);
+builder.Services.AddSingleton<DatasetStore>();
+builder.Services.AddSingleton<UserStore>();
 builder.Services.AddSingleton<SqlLogRepository>();
 builder.Services.AddSingleton<DatabaseHealthService>();
 builder.Services.AddSingleton<MongoPromptRepository>();
@@ -67,10 +65,10 @@ builder.Services.AddAuthorization(options =>
         policy.RequireRole("admin"));
 
     options.AddPolicy("AnalystOrAdmin", policy =>
-        policy.RequireRole("admin", "analyst"));
+        policy.RequireRole(UserRoles.Admin, UserRoles.SupportAgent));
 
     options.AddPolicy("ViewerAccess", policy =>
-        policy.RequireRole("admin", "analyst", "viewer"));
+        policy.RequireRole(UserRoles.Admin, UserRoles.SupportAgent, UserRoles.Customer));
 });
 builder.Services.AddCors(options =>
 {
@@ -128,37 +126,74 @@ app.MapGet("/health/ai", async (AiAnalysisClient aiClient, CancellationToken can
         : Results.Json(result, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
-// REGISTER
-app.MapPost("/register", (RegisterRequest request) =>
+app.MapPost("/login", (LoginRequest request, UserStore userStore) =>
 {
-    // Verificar si ya existe
-    if (users.Any(u => u.Username == request.Username))
+    var username = request.Username?.Trim() ?? string.Empty;
+    var password = request.Password ?? string.Empty;
+
+    if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
     {
-        return Results.BadRequest(new
-        {
-            message = "Username already exists"
-        });
+        return Results.BadRequest(new { message = "Username and password are required." });
     }
 
-    // Crear usuario
-    var user = new UserConfig
+    var user = userStore.Authenticate(username, password);
+    if (user is null)
     {
-        Username = request.Username,
-        Password = request.Password,
-        ApiKey = Guid.NewGuid().ToString(),
-        Role = "viewer",
+        return Results.Unauthorized();
+    }
+
+    return Results.Ok(new
+    {
+        username = user.Username,
+        apiKey = user.ApiKey,
+        role = user.Role,
+        allowedDatasets = user.AllowedDatasets,
+    });
+});
+
+app.MapGet("/me", (HttpContext context) =>
+{
+    var username = context.User.Identity?.Name;
+    var role = context.User.FindFirst(ClaimTypes.Role)?.Value;
+    var allowedDatasets = context.User.FindAll("dataset").Select(c => c.Value).ToList();
+
+    return Results.Ok(new
+    {
+        username,
+        role,
+        allowedDatasets,
+    });
+}).RequireAuthorization();
+
+// REGISTER
+app.MapPost("/register", (RegisterRequest request, UserStore userStore) =>
+{
+    var username = request.Username?.Trim() ?? string.Empty;
+    var password = request.Password ?? string.Empty;
+
+    var (user, error) = userStore.Create(new UserRecord
+    {
+        Username = username,
+        Password = password,
+        Role = UserRoles.Customer,
         AllowedDatasets = new List<string>
         {
             "DATASET1"
         }
-    };
+    });
 
-    users.Add(user);
+    if (error is not null || user is null)
+    {
+        return Results.BadRequest(new { message = error ?? "Unable to create account." });
+    }
 
     return Results.Ok(new
     {
         message = "Account created successfully",
-        apiKey = user.ApiKey
+        username = user.Username,
+        apiKey = user.ApiKey,
+        role = user.Role,
+        allowedDatasets = user.AllowedDatasets,
     });
 });
 
@@ -248,9 +283,9 @@ logRoutes.MapGet("/summary", async (
 logRoutes.MapPost("/{id:int}/analyze", async (
     int id,
     string? dataset,
+    string? prompt,
     HttpContext context,
     SqlLogRepository repository,
-    AiAnalysisClient aiClient,
     PythonAiAnalysisClient pythonAiClient,
     MongoPromptRepository mongoRepository,
     CancellationToken cancellationToken) =>
@@ -265,30 +300,43 @@ logRoutes.MapPost("/{id:int}/analyze", async (
         if (log is null)
             return Results.NotFound(new { message = $"Log with id {id} was not found." });
 
-        var aiTask = aiClient.AnalyzeAsync(log, null, cancellationToken);
-        var pythonTask = pythonAiClient.AnalyzeAsync(log, null, cancellationToken);
+        var analysis = await pythonAiClient.AnalyzeAsync(log, prompt, cancellationToken);
+        var savedAnalysis = new AiAnalyzeResponse(
+            analysis.Summary,
+            analysis.Explanation,
+            analysis.Anomalies,
+            analysis.PointsOfInterest,
+            analysis.RelatedResources);
+        var userId = context.User.Identity?.Name ?? "unknown";
+        var userRole = context.User.FindFirst(ClaimTypes.Role)?.Value ?? UserRoles.Customer;
+        var sharedWithSupport = string.Equals(userRole, UserRoles.Customer, StringComparison.OrdinalIgnoreCase);
 
-        AiAnalyzeResponse? textAnalysis = null;
-        PythonAiAnalyzeResponse? mlAnalysis = null;
+        await mongoRepository.SaveAnalysisAsync(
+            log.Dataset,
+            log.LogId,
+            log,
+            savedAnalysis,
+            userId,
+            userRole,
+            sharedWithSupport,
+            prompt,
+            cancellationToken);
 
-        try { textAnalysis = await aiTask; } catch { /* ai-service degraded */ }
-        try { mlAnalysis = await pythonTask; } catch { /* python-ai degraded */ }
-
-        if (textAnalysis is not null)
-        {
-            var userId = context.User.Identity?.Name ?? "unknown";
-            await mongoRepository.SaveAnalysisAsync(
-                log.Dataset, log.LogId, log, textAnalysis, userId, "Customer", true, null, cancellationToken);
-        }
-
-        return Results.Ok(new CombinedLogAnalysisResponse(log, textAnalysis, mlAnalysis));
+        return Results.Ok(new LogAnalysisResponse(log, analysis));
     }
     catch (ArgumentException exception)
     {
         return Results.BadRequest(new { message = exception.Message });
     }
+    catch (ServiceUnavailableException exception)
+    {
+        return Results.Problem(
+            title: "Python AI service unavailable",
+            detail: exception.Message,
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
 })
-.RequireAuthorization("AnalystOrAdmin"); 
+.RequireAuthorization("AnalystOrAdmin");
 
 // List all saved analyses for a dataset from MongoDB
 logRoutes.MapGet("/analyses", async (
@@ -423,36 +471,36 @@ static bool IsDatasetAllowed(HttpContext context, string? dataset)
 
 public partial class Program { }
 
+public sealed record LoginRequest(string Username, string Password);
+
 // API key authentication handler — reads user config and attaches dataset claims
 public class ApiKeyAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
     private const string ApiKeyHeader = "X-Api-Key";
+    private readonly UserStore _userStore;
 
     public ApiKeyAuthHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
-        UrlEncoder encoder) : base(options, logger, encoder) { }
+        UrlEncoder encoder,
+        UserStore userStore) : base(options, logger, encoder)
+    {
+        _userStore = userStore;
+    }
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         if (!Request.Headers.TryGetValue(ApiKeyHeader, out var extractedApiKey))
             return Task.FromResult(AuthenticateResult.Fail("Missing API key header."));
 
-        var config = Context.RequestServices.GetRequiredService<IConfiguration>();
-        var users = config.GetSection("Users").Get<List<UserConfig>>();
-
-        if (users is null)
-            return Task.FromResult(AuthenticateResult.Fail("No users configured."));
-
-        var user = users.FirstOrDefault(u => u.ApiKey == extractedApiKey.ToString());
+        var user = _userStore.FindByApiKey(extractedApiKey.ToString());
 
         if (user is null)
             return Task.FromResult(AuthenticateResult.Fail("Invalid API key."));
 
         var claims = new List<Claim>
         {
-            new Claim(ClaimTypes.Name, user.ApiKey),
-            // Claim of rol
+            new Claim(ClaimTypes.Name, user.Username),
             new Claim(ClaimTypes.Role, user.Role)
         };
 
@@ -466,13 +514,4 @@ public class ApiKeyAuthHandler : AuthenticationHandler<AuthenticationSchemeOptio
 
         return Task.FromResult(AuthenticateResult.Success(ticket));
     }
-}
-
-public class UserConfig
-{
-    public string Username { get; set; } = string.Empty;
-    public string Password { get; set; } = string.Empty;
-    public string ApiKey { get; set; } = string.Empty;
-    public string Role { get; set; } = "viewer";
-    public List<string> AllowedDatasets { get; set; } = new();
 }

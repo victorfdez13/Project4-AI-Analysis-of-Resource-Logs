@@ -14,18 +14,43 @@ public sealed class MongoPromptRepository
     {
         var database = mongoClient.GetDatabase(options.Value.MongoSettings.DatabaseName);
         _collection = database.GetCollection<BsonDocument>(options.Value.MongoSettings.CollectionName);
+        EnsureIndexes();
+    }
+
+    private void EnsureIndexes()
+    {
+        _collection.Indexes.CreateMany(new[]
+        {
+            new CreateIndexModel<BsonDocument>(
+                Builders<BsonDocument>.IndexKeys
+                    .Ascending("dataset")
+                    .Ascending("logId"),
+                new CreateIndexOptions
+                {
+                    Name = "dataset_logId_unique",
+                    Unique = true
+                }),
+            new CreateIndexModel<BsonDocument>(
+                Builders<BsonDocument>.IndexKeys
+                    .Ascending("createdByUserId")
+                    .Descending("analyzedAt"),
+                new CreateIndexOptions
+                {
+                    Name = "createdByUserId_analyzedAt"
+                }),
+        });
     }
 
     public async Task SaveAnalysisAsync(
-    string dataset,
-    int logId,
-    ResourceLogDetail log,
-    AiAnalyzeResponse analysis,
-    string userId,
-    string role,
-    bool sharedWithSupport,
-    string? prompt,
-    CancellationToken cancellationToken)
+        string dataset,
+        int logId,
+        ResourceLogDetail log,
+        AiAnalyzeResponse analysis,
+        string userId,
+        string role,
+        bool sharedWithSupport,
+        string? prompt,
+        CancellationToken cancellationToken)
     {
         var document = new BsonDocument
         {
@@ -39,25 +64,26 @@ public sealed class MongoPromptRepository
             ["prompt"] = prompt ?? "",
             ["analyzedAt"] = DateTimeOffset.UtcNow.ToString("o"),
             ["selectedLogs"] = new BsonArray
-{
-    new BsonDocument
-    {
-        ["logId"] = log.LogId,
-        ["category"] = log.Category,
-        ["time"] = log.Time.ToString("o"),
-        ["message"] = log.Message,
-        ["level"] = log.Level,
-        ["mainEntityId"] = log.MainEntityId != null ? (BsonValue)log.MainEntityId : BsonNull.Value,
-        ["sessionId"] = log.SessionId != null ? (BsonValue)log.SessionId : BsonNull.Value,
-    }
-},
+            {
+                new BsonDocument
+                {
+                    ["logId"] = log.LogId,
+                    ["category"] = log.Category,
+                    ["time"] = log.Time.ToString("o"),
+                    ["message"] = log.Message,
+                    ["level"] = log.Level,
+                    ["mainEntityId"] = log.MainEntityId != null ? (BsonValue)log.MainEntityId : BsonNull.Value,
+                    ["sessionId"] = log.SessionId != null ? (BsonValue)log.SessionId : BsonNull.Value,
+                }
+            },
             ["analysis"] = new BsonDocument
-{
-    ["summary"] = analysis.Summary,
-    ["explanation"] = analysis.Explanation,
-    ["anomalies"] = new BsonArray(analysis.Anomalies),
-    ["pointsOfInterest"] = new BsonArray(analysis.PointsOfInterest),
-}
+            {
+                ["summary"] = analysis.Summary,
+                ["explanation"] = analysis.Explanation,
+                ["anomalies"] = new BsonArray(analysis.Anomalies),
+                ["pointsOfInterest"] = new BsonArray(analysis.PointsOfInterest),
+                ["relatedResources"] = new BsonArray(analysis.RelatedResources ?? []),
+            }
         };
 
         var filter = Builders<BsonDocument>.Filter.And(
@@ -114,36 +140,40 @@ public sealed class MongoPromptRepository
             ? analysisDoc["pointsOfInterest"].AsBsonArray.Select(x => x.AsString).ToList()
             : (IReadOnlyList<string>)[];
 
+        var relatedResources = analysisDoc.Contains("relatedResources")
+            ? analysisDoc["relatedResources"].AsBsonArray.Select(x => x.AsString).ToList()
+            : (IReadOnlyList<string>)[];
+
         var analysis = new AiAnalyzeResponse(
             analysisDoc["summary"].AsString,
             analysisDoc["explanation"].AsString,
             analysisDoc["anomalies"].AsBsonArray.Select(x => x.AsString).ToList(),
             pointsOfInterest,
-            analysisDoc["relatedResources"].AsBsonArray.Select(x => x.AsString).ToList());
+            relatedResources);
 
-            return new SavedAnalysisResult(
-    document["_id"].ToString()!,
-    document["dataset"].AsString,
-    document["logId"].ToInt32(),
-    document["analyzedAt"].AsString,
-    document.Contains("prompt") ? document["prompt"].AsString : null,
-    analysis);
+        return new SavedAnalysisResult(
+            document["_id"].ToString()!,
+            document["dataset"].AsString,
+            document["logId"].ToInt32(),
+            document["analyzedAt"].AsString,
+            document.Contains("prompt") ? document["prompt"].AsString : null,
+            analysis);
     }
-    public async Task<IReadOnlyList<BsonDocument>>
-    GetUserHistoryAsync(
+
+    public async Task<IReadOnlyList<BsonDocument>> GetUserHistoryAsync(
         string userId,
         CancellationToken cancellationToken)
-{
-    var filter = Builders<BsonDocument>.Filter.Eq(
-        "createdByUserId",
-        userId);
+    {
+        var filter = Builders<BsonDocument>.Filter.Eq(
+            "createdByUserId",
+            userId);
 
-    var documents = await _collection
-        .Find(filter)
-        .SortByDescending(d => d["analyzedAt"])
-        .ToListAsync(cancellationToken);
+        var documents = await _collection
+            .Find(filter)
+            .SortByDescending(d => d["analyzedAt"])
+            .ToListAsync(cancellationToken);
 
-    return documents;
-}
+        return documents;
+    }
 
 }

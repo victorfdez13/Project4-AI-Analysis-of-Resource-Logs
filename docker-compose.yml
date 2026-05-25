@@ -3,8 +3,9 @@
 # Containers (per the project proposal container diagram):
 #   - sqlserver      : real SpeedAdmin log datasets
 #   - mongo          : saved analyses + chat history
-#   - ai-service     : FastAPI; builds prompts and calls the LLM
-#   - backend        : ASP.NET minimal API; orchestrates SQL + ai-service
+#   - ai-service     : FastAPI; text-generation gateway backed by Ollama
+#   - python-ai      : FastAPI; structured log analysis pipeline
+#   - backend        : ASP.NET minimal API; orchestrates SQL + python-ai
 #   - frontend       : React build served by nginx
 #
 # Start everything with:   docker compose up --build
@@ -33,6 +34,22 @@ services:
       retries: 10
     networks:
       - backend-net
+
+  sqlserver-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: project4-sqlserver-init
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      MSSQL_SA_PASSWORD: "Your_strong_password123"
+    volumes:
+      - ./database/sqlserver/init:/scripts:ro
+    network_mode: "service:sqlserver"
+    command:
+      - /bin/bash
+      - /scripts/init-sqlserver.sh
+    restart: "no"
 
   mongo:
     image: mongo:7.0
@@ -116,14 +133,15 @@ services:
       MONGO_DATASET1_COLLECTION: "dataset1_logs"
       MONGO_DATASET2_COLLECTION: "dataset2_logs"
       EXPLANATION_BACKEND: "remote"
-      REMOTE_LLM_BASE_URL: "http://ollama:11434/v1"
+      REMOTE_LLM_BASE_URL: "http://ai-service:8000/v1"
       REMOTE_LLM_MODEL: "llama3.2"
       REMOTE_LLM_API_KEY: ""
+      REMOTE_LLM_TIMEOUT_SECONDS: "120"
       CORS_ALLOW_ORIGINS: ""
     depends_on:
       mongo:
         condition: service_healthy
-      ollama:
+      ai-service:
         condition: service_started
     ports:
       - "8010:8010"
@@ -142,13 +160,15 @@ services:
       ConnectionStrings__MongoDb: "mongodb://admin:mongodb123@mongo:27017"
       SqlServerDatasets__0: "DATASET1"
       SqlServerDatasets__1: "DATASET2"
-      MongoSettings__DatabaseName: "resource_logs"
-      MongoSettings__CollectionName: "dataset1_logs"
+      MongoSettings__DatabaseName: "savedlogs"
+      MongoSettings__CollectionName: "saved_logs"
       AiService__BaseUrl: "http://ai-service:8000"
       PythonAiService__BaseUrl: "http://python-ai:8010"
     depends_on:
       sqlserver:
         condition: service_healthy
+      sqlserver-init:
+        condition: service_completed_successfully
       ai-service:
         condition: service_started
       python-ai:

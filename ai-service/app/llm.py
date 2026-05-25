@@ -163,6 +163,11 @@ class OllamaProvider:
                 pass
         return self._mock.complete_messages(messages)
 
+    def complete_messages_strict(self, messages: list[dict]) -> str:
+        if not self._is_available():
+            raise RuntimeError("Ollama is unavailable")
+        return self._call(messages)
+
 
 # ---------------------------------------------------------------------------
 # Generic provider — any OpenAI-compatible endpoint (OpenAI, Together, etc.)
@@ -229,6 +234,15 @@ def complete_messages(messages: list[dict]) -> str:
         return _get().complete_messages(messages)
     except Exception:
         return MockProvider().complete_messages(messages)
+
+
+def complete_messages_strict(messages: list[dict]) -> str:
+    """Route to the configured LLM provider and preserve real failures."""
+    provider = _get()
+    strict_complete = getattr(provider, "complete_messages_strict", None)
+    if callable(strict_complete):
+        return strict_complete(messages)
+    return provider.complete_messages(messages)
 
 
 def complete(prompt: str) -> str:

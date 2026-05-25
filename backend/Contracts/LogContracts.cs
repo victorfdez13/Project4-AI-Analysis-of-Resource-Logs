@@ -72,7 +72,8 @@ public sealed record AiAnalyzeResponse(
     [property: JsonPropertyName("summary")] string Summary,
     [property: JsonPropertyName("explanation")] string Explanation,
     [property: JsonPropertyName("anomalies")] IReadOnlyList<string> Anomalies,
-    [property: JsonPropertyName("points_of_interest")] IReadOnlyList<string> PointsOfInterest);
+    [property: JsonPropertyName("points_of_interest")] IReadOnlyList<string> PointsOfInterest,
+    [property: JsonPropertyName("related_resources")] IReadOnlyList<string>? RelatedResources = null);
 
 public sealed record PythonContextOverview(
     [property: JsonPropertyName("dataset")] string? Dataset,
@@ -118,10 +119,9 @@ public sealed record PythonAiAnalyzeResponse(
     [property: JsonPropertyName("priority_assessment")] PythonPriorityAssessment PriorityAssessment,
     [property: JsonPropertyName("activity_movement")] PythonActivityMovement ActivityMovement);
 
-public sealed record CombinedLogAnalysisResponse(
+public sealed record LogAnalysisResponse(
     ResourceLogDetail Log,
-    AiAnalyzeResponse? TextAnalysis,
-    PythonAiAnalyzeResponse? MlAnalysis);
+    PythonAiAnalyzeResponse Analysis);
 
 public sealed record SavedLogDocument(
     [property: JsonPropertyName("_id")] string? Id,

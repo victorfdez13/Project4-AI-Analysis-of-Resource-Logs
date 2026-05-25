@@ -13,9 +13,9 @@ public sealed class BackendOptions
 
 public sealed class MongoSettings
 {
-    public string DatabaseName { get; set; } = "resource_logs";
+    public string DatabaseName { get; set; } = "savedlogs";
 
-    public string CollectionName { get; set; } = "dataset1_logs";
+    public string CollectionName { get; set; } = "saved_logs";
 }
 
 public sealed class AiServiceSettings

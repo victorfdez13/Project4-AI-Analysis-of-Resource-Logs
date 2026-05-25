@@ -208,7 +208,6 @@ export default function MainPage() {
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [pythonAiAnalyzing, setPythonAiAnalyzing] = useState(false);
   const [analysisSourceLabel, setAnalysisSourceLabel] = useState("");
   const [pageError, setPageError] = useState("");
   const [logsError, setLogsError] = useState("");
@@ -405,8 +404,9 @@ export default function MainPage() {
       setAnalysis({
         ...response.analysis,
         anomalies: response.analysis?.anomalies || [],
+        points_of_interest: response.analysis?.points_of_interest || [],
       });
-      setAnalysisSourceLabel("Default AI Service");
+      setAnalysisSourceLabel("Python AI + Ollama Text");
       setSelectedLog(response.log || selectedLog);
     } catch (error) {
       setAnalysis(null);
@@ -414,44 +414,6 @@ export default function MainPage() {
       setAnalysisError(error.message || "Unable to analyze the selected log.");
     } finally {
       setAnalyzing(false);
-    }
-  };
-
-  const handlePythonAiAnalyze = async () => {
-    if (!activeDataset || !selectedLogId) {
-      return;
-    }
-
-    try {
-      setPythonAiAnalyzing(true);
-      setAnalysisError("");
-
-      const params = { dataset: activeDataset };
-      const effectivePrompt = buildAnalysisPrompt(
-        selectedAnalysisFocus,
-        userPrompt
-      );
-      if (effectivePrompt) params.prompt = effectivePrompt;
-
-      const response = await requestJson(
-        `/api/logs/${selectedLogId}/analyze-python-ai`,
-        params,
-        { method: "POST" }
-      );
-
-      setAnalysis({
-        ...response.analysis,
-        anomalies: response.analysis?.anomalies || [],
-        points_of_interest: response.analysis?.points_of_interest || [],
-      });
-      setAnalysisSourceLabel("Python AI Test");
-      setSelectedLog(response.log || selectedLog);
-    } catch (error) {
-      setAnalysis(null);
-      setAnalysisSourceLabel("");
-      setAnalysisError(error.message || "Unable to analyze the selected log with Python AI.");
-    } finally {
-      setPythonAiAnalyzing(false);
     }
   };
 
@@ -628,16 +590,9 @@ export default function MainPage() {
           <div className="overflow-hidden rounded-[18px] border border-[#d9e1e7] bg-white shadow-[0_4px_14px_rgba(14,90,116,0.08)]">
             <div className="border-b border-[#d9e1e7] bg-[#fbfcfd] px-6 py-5 flex items-center justify-between">
               <h2 className="text-xl font-semibold text-[#0e5a74]">Logs</h2>
-              {selectedLogIds.size > 0 && (
-                <button
-                  onClick={handleBulkAnalyze}
-                  disabled={bulkAnalyzing}
-                  className="rounded-lg px-4 py-2 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                  style={{ background: "linear-gradient(135deg, #0e5a74, #e9782e)" }}
-                >
-                  {bulkAnalyzing ? "Analyzing..." : `Analyze Selected (${selectedLogIds.size})`}
-                </button>
-              )}
+              <span className="text-xs font-semibold uppercase tracking-wide text-[#0e5a74]/65">
+                Single-log analysis
+              </span>
             </div>
             <div className="px-6 py-5">
               <div className="overflow-hidden rounded-xl border border-[#d9e1e7]">
@@ -916,27 +871,19 @@ export default function MainPage() {
                 })}
               </div>
               <p className="text-xs leading-relaxed text-[#1f2a37]/55">
-                Pick a focus area so the non-LLM analysis knows what to emphasize.
+                Pick a focus area so the Python analysis knows what to emphasize while Ollama writes the final explanation.
               </p>
             </div>
-            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className="mt-3">
               <button
                 type="button"
                 data-testid="analyze-button"
                 onClick={handleAnalyze}
-                disabled={!selectedLogId || analyzing || pythonAiAnalyzing}
+                disabled={!selectedLogId || analyzing}
                 className="w-full rounded-lg px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
                 style={{ background: "linear-gradient(135deg, #0e5a74, #e9782e)" }}
               >
-                {analyzing ? "Analyzing..." : "Analyze Logs"}
-              </button>
-              <button
-                type="button"
-                onClick={handlePythonAiAnalyze}
-                disabled={!selectedLogId || analyzing || pythonAiAnalyzing}
-                className="w-full rounded-lg border border-[#0e5a74] bg-white px-4 py-3 text-sm font-bold text-[#0e5a74] transition-colors hover:bg-[#eef3f6] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {pythonAiAnalyzing ? "Testing Python AI..." : "Test Python AI"}
+                {analyzing ? "Analyzing..." : "Analyze with Python AI"}
               </button>
             </div>
           </div>

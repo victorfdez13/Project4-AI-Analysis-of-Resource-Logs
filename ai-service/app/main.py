@@ -1,5 +1,6 @@
 from typing import Any, Optional
 import logging
+import time
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,7 +9,15 @@ from pymongo.errors import PyMongoError
 from app import chat_repository, llm, log_repository, saved_log_repository
 from app.config import settings
 from app.database import init_db
-from app.models import AnalyzeRequest, AnalyzeResponse, BatchAnalyzeRequest, BatchAnalyzeResponse, ChatRequest, ChatResponse
+from app.models import (
+    AnalyzeRequest,
+    AnalyzeResponse,
+    BatchAnalyzeRequest,
+    BatchAnalyzeResponse,
+    ChatCompletionRequest,
+    ChatRequest,
+    ChatResponse,
+)
 from app.service import (
     analyze_logs_batch,
     analyze_speedadmin_log,
@@ -101,6 +110,58 @@ def chat(req: ChatRequest) -> ChatResponse:
         raise HTTPException(
             status_code=500,
             detail="Error processing chat request"
+        )
+
+
+@app.post("/v1/chat/completions")
+def chat_completions(req: ChatCompletionRequest) -> dict[str, Any]:
+    """Small OpenAI-compatible chat endpoint backed by Ollama."""
+    try:
+        if not req.messages:
+            raise HTTPException(status_code=400, detail="messages cannot be empty")
+
+        messages = [
+            {
+                "role": str(message.get("role") or "user"),
+                "content": str(message.get("content") or ""),
+            }
+            for message in req.messages
+            if isinstance(message, dict)
+        ]
+        if not messages:
+            raise HTTPException(status_code=400, detail="messages cannot be empty")
+
+        response_text = llm.complete_messages_strict(messages)
+        if not response_text:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to generate response from LLM",
+            )
+
+        model_name = req.model or settings.OLLAMA_MODEL or "text-generator"
+        return {
+            "id": f"chatcmpl-{int(time.time() * 1000)}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": model_name,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": response_text,
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing chat completion request: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Error processing chat completion request",
         )
 
 

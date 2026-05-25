@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import urllib.request
 from typing import Any
 
@@ -21,6 +22,50 @@ def _safe_text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _to_output_from_text(content: str) -> ExplanationOutput:
+    return ExplanationOutput(
+        summary=_truncate(content, max_len=110),
+        explanation=content,
+    )
+
+
+def _parse_json_output(candidate: str) -> ExplanationOutput | None:
+    try:
+        parsed_content = json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(parsed_content, dict):
+        return None
+
+    summary = _safe_text(parsed_content.get("summary"))
+    explanation = _safe_text(parsed_content.get("explanation"))
+    if not summary or not explanation:
+        return None
+
+    return ExplanationOutput(summary=summary, explanation=explanation)
+
+
+def _extract_remote_output(content: str) -> ExplanationOutput:
+    candidates = [content]
+
+    fenced_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
+    if fenced_match:
+        candidates.insert(0, fenced_match.group(1))
+
+    start = content.find("{")
+    end = content.rfind("}")
+    if start != -1 and end > start:
+        candidates.append(content[start : end + 1])
+
+    for candidate in candidates:
+        parsed = _parse_json_output(candidate)
+        if parsed is not None:
+            return parsed
+
+    return _to_output_from_text(content)
+
+
 class OpenAiCompatibleExplanationEngine(ExplanationEngine):
     def _build_prompt(
         self,
@@ -37,7 +82,8 @@ class OpenAiCompatibleExplanationEngine(ExplanationEngine):
         return (
             "Explain this SpeedAdmin log in plain language for support staff or customers.\n"
             "Do not mention algorithms, scoring models, or implementation details.\n"
-            "Return JSON only with keys summary and explanation.\n\n"
+            "Return only a compact JSON object with keys summary and explanation.\n"
+            "Do not add markdown, headings, or code fences.\n\n"
             f"Dataset: {_safe_text(anchor_log.get('datasetName'))}\n"
             f"LogId: {_safe_text(anchor_log.get('logId'))}\n"
             f"Category: {_safe_text(anchor_log.get('category'))}\n"
@@ -60,48 +106,45 @@ class OpenAiCompatibleExplanationEngine(ExplanationEngine):
         if not settings.REMOTE_LLM_BASE_URL or not settings.REMOTE_LLM_MODEL:
             return None
 
-        url = settings.REMOTE_LLM_BASE_URL.rstrip("/") + "/chat/completions"
-        payload = {
-            "model": settings.REMOTE_LLM_MODEL,
-            "temperature": 0.2,
-            "max_tokens": 400,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": settings.REMOTE_LLM_SYSTEM_PROMPT,
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
-        }
-        data = json.dumps(payload).encode("utf-8")
-        headers = {"Content-Type": "application/json"}
-        if settings.REMOTE_LLM_API_KEY:
-            headers["Authorization"] = f"Bearer {settings.REMOTE_LLM_API_KEY}"
+        try:
+            url = settings.REMOTE_LLM_BASE_URL.rstrip("/") + "/chat/completions"
+            payload = {
+                "model": settings.REMOTE_LLM_MODEL,
+                "temperature": 0.2,
+                "max_tokens": 400,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": settings.REMOTE_LLM_SYSTEM_PROMPT,
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    },
+                ],
+            }
+            data = json.dumps(payload).encode("utf-8")
+            headers = {"Content-Type": "application/json"}
+            if settings.REMOTE_LLM_API_KEY:
+                headers["Authorization"] = f"Bearer {settings.REMOTE_LLM_API_KEY}"
 
-        request = urllib.request.Request(url, data=data, headers=headers, method="POST")
-        with urllib.request.urlopen(request, timeout=settings.REMOTE_LLM_TIMEOUT_SECONDS) as response:
-            raw = response.read().decode("utf-8")
+            request = urllib.request.Request(url, data=data, headers=headers, method="POST")
+            with urllib.request.urlopen(request, timeout=settings.REMOTE_LLM_TIMEOUT_SECONDS) as response:
+                raw = response.read().decode("utf-8")
 
-        parsed_response = json.loads(raw)
-        content = (
-            parsed_response.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-            .strip()
-        )
-        if not content:
+            parsed_response = json.loads(raw)
+            content = (
+                parsed_response.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+                .strip()
+            )
+            if not content:
+                return None
+
+            return _extract_remote_output(content)
+        except Exception:
             return None
-
-        parsed_content = json.loads(content)
-        summary = _safe_text(parsed_content.get("summary"))
-        explanation = _safe_text(parsed_content.get("explanation"))
-        if not summary or not explanation:
-            return None
-
-        return ExplanationOutput(summary=summary, explanation=explanation)
 
     def generate(
         self,

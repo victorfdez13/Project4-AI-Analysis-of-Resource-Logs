@@ -45,3 +45,10 @@ class ChatResponse(BaseModel):
     session_id: str
     response: str
     summary: str
+
+
+class ChatCompletionRequest(BaseModel):
+    model: Optional[str] = None
+    messages: list[dict[str, Any]]
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None

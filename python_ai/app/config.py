@@ -20,7 +20,7 @@ class Settings:
         "You explain SpeedAdmin logs in plain language for support staff and customers.",
     )
     REMOTE_LLM_TIMEOUT_SECONDS: int = int(
-        os.getenv("REMOTE_LLM_TIMEOUT_SECONDS", "10")
+        os.getenv("REMOTE_LLM_TIMEOUT_SECONDS", "120")
     )
 
     MONGO_URI: str = os.getenv(
