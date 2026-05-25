@@ -252,27 +252,39 @@ logRoutes.MapPost("/{id:int}/analyze", async (
     try
     {
         var log = await repository.GetLogByIdAsync(dataset, id, cancellationToken);
+
         if (log is null)
         {
-            return Results.NotFound(new { message = $"Log with id {id} was not found." });
+            return Results.NotFound(new
+            {
+                message = $"Log with id {id} was not found."
+            });
         }
 
         var analysis = await aiClient.AnalyzeAsync(log, cancellationToken);
 
-        // Save prompt result to MongoDB
+        var userId = context.User.Identity?.Name ?? "unknown";
+
         await mongoRepository.SaveAnalysisAsync(
             log.Dataset,
             log.LogId,
             log,
             analysis,
+            userId,
+            "Customer",
+            true,
             cancellationToken);
 
         var response = new LogAnalysisResponse(log, analysis);
+
         return Results.Ok(response);
     }
     catch (ArgumentException exception)
     {
-        return Results.BadRequest(new { message = exception.Message });
+        return Results.BadRequest(new
+        {
+            message = exception.Message
+        });
     }
     catch (HttpRequestException exception)
     {
@@ -282,69 +294,7 @@ logRoutes.MapPost("/{id:int}/analyze", async (
             statusCode: StatusCodes.Status503ServiceUnavailable);
     }
 })
-.RequireAuthorization("AnalystOrAdmin");
-app.MapPost("/register", (RegisterRequest request) =>
-{
-    // Check if username already exists
-    if (users.Any(u => u.Username == request.Username))
-    {
-        return Results.BadRequest(new
-        {
-            message = "Username already exists"
-        });
-    }
-
-    // Create new user
-    var user = new UserConfig
-    {
-        Username = request.Username,
-        Password = request.Password,
-
-        ApiKey = Guid.NewGuid().ToString(),
-
-        Role = "viewer",
-
-        AllowedDatasets = new List<string>
-        {
-            "DATASET1"
-        }
-    };
-
-    users.Add(user);
-
-    return Results.Ok(new
-    {
-        message = "Account created successfully",
-        apiKey = user.ApiKey
-    });
-});
-
-// Retrieve saved analysis for a specific log from MongoDB
-logRoutes.MapGet("/{id:int}/analysis", async (
-    int id,
-    string? dataset,
-    HttpContext context,
-    SqlLogRepository repository,
-    MongoPromptRepository mongoRepository,
-    CancellationToken cancellationToken) =>
-{
-    if (!IsDatasetAllowed(context, dataset))
-        return Results.Forbid();
-
-    try
-    {
-        var resolvedDataset = dataset ?? repository.GetConfiguredDatasets().FirstOrDefault() ?? "";
-        var result = await mongoRepository.GetAnalysisAsync(resolvedDataset, id, cancellationToken);
-
-        return result is null
-            ? Results.NotFound(new { message = $"No saved analysis found for log {id}." })
-            : Results.Ok(result);
-    }
-    catch (ArgumentException exception)
-    {
-        return Results.BadRequest(new { message = exception.Message });
-    }
-}).RequireAuthorization("ViewerAccess");
+.RequireAuthorization("AnalystOrAdmin"); 
 
 // List all saved analyses for a dataset from MongoDB
 logRoutes.MapGet("/analyses", async (
@@ -371,6 +321,22 @@ logRoutes.MapGet("/analyses", async (
         return Results.BadRequest(new { message = exception.Message });
     }
 }).RequireAuthorization("ViewerAccess");
+// User prompt history
+logRoutes.MapGet("/history", async (
+    HttpContext context,
+    MongoPromptRepository mongoRepository,
+    CancellationToken cancellationToken) =>
+{
+    var userId = context.User.Identity?.Name ?? "unknown";
+
+    var results = await mongoRepository.GetUserHistoryAsync(
+        userId,
+        cancellationToken);
+
+    return Results.Ok(results);
+}).RequireAuthorization("ViewerAccess");
+
+
 
 var savedLogRoutes = app.MapGroup("/api/saved-logs");
 

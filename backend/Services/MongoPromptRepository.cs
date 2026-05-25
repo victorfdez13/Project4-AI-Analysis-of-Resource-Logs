@@ -17,14 +17,20 @@ public sealed class MongoPromptRepository
     }
 
     public async Task SaveAnalysisAsync(
-        string dataset,
-        int logId,
-        ResourceLogDetail log,
-        AiAnalyzeResponse analysis,
-        CancellationToken cancellationToken)
+    string dataset,
+    int logId,
+    ResourceLogDetail log,
+    AiAnalyzeResponse analysis,
+    string userId,
+    string role,
+    bool sharedWithSupport,
+    CancellationToken cancellationToken)
     {
         var document = new BsonDocument
         {
+            ["createdByUserId"] = userId,
+            ["createdByRole"] = role,
+            ["sharedWithSupport"] = sharedWithSupport,
             ["dataset"] = dataset,
             ["logId"] = logId,
             ["analyzedAt"] = DateTimeOffset.UtcNow.ToString("o"),
@@ -120,4 +126,20 @@ public sealed class MongoPromptRepository
                 analysis);
         }).ToList();
     }
+    public async Task<IReadOnlyList<BsonDocument>>
+    GetUserHistoryAsync(
+        string userId,
+        CancellationToken cancellationToken)
+{
+    var filter = Builders<BsonDocument>.Filter.Eq(
+        "createdByUserId",
+        userId);
+
+    var documents = await _collection
+        .Find(filter)
+        .SortByDescending(d => d["analyzedAt"])
+        .ToListAsync(cancellationToken);
+
+    return documents;
+}
 }
