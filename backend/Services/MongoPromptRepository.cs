@@ -24,6 +24,7 @@ public sealed class MongoPromptRepository
     string userId,
     string role,
     bool sharedWithSupport,
+    string? prompt,
     CancellationToken cancellationToken)
     {
         var document = new BsonDocument
@@ -117,12 +118,12 @@ public sealed class MongoPromptRepository
             analysisDoc["relatedResources"].AsBsonArray.Select(x => x.AsString).ToList());
 
             return new SavedAnalysisResult(
-                document["_id"].ToString()!,
-                dataset,
-                document["logId"].ToInt32(),
-                document["analyzedAt"].AsString,
-                analysis);
-        }).ToList();
+    document["_id"].ToString()!,
+    document["dataset"].AsString,
+    document["logId"].ToInt32(),
+    document["analyzedAt"].AsString,
+    document.Contains("prompt") ? document["prompt"].AsString : null,
+    analysis);
     }
     public async Task<IReadOnlyList<BsonDocument>>
     GetUserHistoryAsync(
@@ -140,4 +141,5 @@ public sealed class MongoPromptRepository
 
     return documents;
 }
+
 }
