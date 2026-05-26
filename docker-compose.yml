@@ -133,7 +133,7 @@ services:
       MONGO_DATASET1_COLLECTION: "dataset1_logs"
       MONGO_DATASET2_COLLECTION: "dataset2_logs"
       EXPLANATION_BACKEND: "remote"
-      REMOTE_LLM_BASE_URL: "http://ai-service:8000/v1"
+      REMOTE_LLM_BASE_URL: "http://ollama:11434/v1"
       REMOTE_LLM_MODEL: "llama3.2"
       REMOTE_LLM_API_KEY: ""
       REMOTE_LLM_TIMEOUT_SECONDS: "120"

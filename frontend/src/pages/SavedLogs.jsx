@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import { requestJson } from "../apiClient";
 
 export default function SavedLogs() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [datasets, setDatasets] = useState([]);
   const [activeDataset, setActiveDataset] = useState("");
@@ -13,6 +14,8 @@ export default function SavedLogs() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showModal, setShowModal] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   // Load datasets
   useEffect(() => {
@@ -43,7 +46,17 @@ export default function SavedLogs() {
         });
         const list = response?.analyses || [];
         setAnalyses(list);
-        setSelected(list[0] || null);
+
+        // If URL has an id param, select that analysis
+        const idFromUrl = searchParams.get("id");
+        if (idFromUrl) {
+          const found = list.find(
+            (a) => a.analysisId === idFromUrl || a.id === idFromUrl
+          );
+          setSelected(found || list[0] || null);
+        } else {
+          setSelected(list[0] || null);
+        }
       } catch (err) {
         setError(`Failed to load analyses: ${err.message}`);
         setAnalyses([]);
@@ -55,6 +68,17 @@ export default function SavedLogs() {
 
     loadAnalyses();
   }, [activeDataset]);
+
+  // Update URL when selected changes
+  function selectAnalysis(item) {
+    setSelected(item);
+    const id = item?.analysisId || item?.id;
+    if (id) {
+      setSearchParams({ id });
+    } else {
+      setSearchParams({});
+    }
+  }
 
   const filtered = analyses.filter(
     (a) =>
@@ -79,9 +103,107 @@ export default function SavedLogs() {
     URL.revokeObjectURL(url);
   }
 
+  function handleCopyLink() {
+    const id = selected?.analysisId || selected?.id;
+    if (!id) return;
+    const url = `${window.location.origin}/saved-logs?id=${id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    }).catch(() => {
+      // Fallback for browsers that block clipboard
+      const input = document.createElement("input");
+      input.value = url;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand("copy");
+      document.body.removeChild(input);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    });
+  }
+
   return (
     <div className="min-h-screen bg-[#f4f6f8] font-sans text-[#1f2a37]">
       <Navbar active="Saved Logs" />
+
+      {/* Full Analysis Modal */}
+      {showModal && selected && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+          onClick={() => setShowModal(false)}
+        >
+          <div
+            className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-[18px] bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#d9e1e7] bg-[#fbfcfd] px-6 py-5">
+              <div>
+                <h2 className="text-xl font-semibold text-[#0e5a74]">Full Analysis</h2>
+                <p className="mt-0.5 text-sm text-[#1f2a37]/50">
+                  Log #{selected.logId} · {selected.dataset} · {new Date(selected.analyzedAt).toLocaleString()}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowModal(false)}
+                className="text-2xl leading-none text-[#1f2a37]/30 hover:text-[#1f2a37]/70"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex flex-col gap-6 px-6 py-6">
+              {selected.prompt && (
+                <div>
+                  <h3 className="mb-1 text-sm font-semibold text-[#0e5a74]">Prompt Used</h3>
+                  <p className="text-sm text-[#1f2a37]/60 italic">"{selected.prompt}"</p>
+                </div>
+              )}
+              <div>
+                <h3 className="mb-2 text-base font-semibold text-[#0e5a74]">Summary</h3>
+                <p className="text-sm leading-relaxed text-[#1f2a37]/70">{selected.analysis?.summary || "-"}</p>
+              </div>
+              <div>
+                <h3 className="mb-2 text-base font-semibold text-[#0e5a74]">Explanation</h3>
+                <p className="text-sm leading-relaxed text-[#1f2a37]/70">{selected.analysis?.explanation || "-"}</p>
+              </div>
+              <div>
+                <h3 className="mb-2 text-base font-semibold text-[#0e5a74]">Anomalies</h3>
+                {selected.analysis?.anomalies?.length > 0 ? (
+                  <ul className="list-disc pl-5 space-y-1 text-sm text-[#1f2a37]/70">
+                    {selected.analysis.anomalies.map((item, i) => <li key={i}>{item}</li>)}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-[#1f2a37]/40">None detected</p>
+                )}
+              </div>
+              {(selected.analysis?.pointsOfInterest || selected.analysis?.points_of_interest || []).length > 0 && (
+                <div>
+                  <h3 className="mb-2 text-base font-semibold text-[#0e5a74]">Points of Interest</h3>
+                  <ul className="list-disc pl-5 space-y-1 text-sm text-[#1f2a37]/70">
+                    {(selected.analysis?.pointsOfInterest || selected.analysis?.points_of_interest || []).map((item, i) => <li key={i}>{item}</li>)}
+                  </ul>
+                </div>
+              )}
+              {(selected.analysis?.relatedResources || selected.analysis?.related_resources || []).length > 0 && (
+                <div>
+                  <h3 className="mb-2 text-base font-semibold text-[#0e5a74]">Related Resources</h3>
+                  <ul className="list-disc pl-5 space-y-1 text-sm text-[#1f2a37]/70">
+                    {(selected.analysis?.relatedResources || selected.analysis?.related_resources || []).map((item, i) => <li key={i}>{item}</li>)}
+                  </ul>
+                </div>
+              )}
+            </div>
+            <div className="sticky bottom-0 flex justify-end border-t border-[#d9e1e7] bg-[#fbfcfd] px-6 py-4">
+              <button
+                onClick={() => setShowModal(false)}
+                className="rounded-lg border border-[#d9e1e7] bg-white px-5 py-2.5 text-sm font-semibold text-[#0e5a74] transition-colors hover:bg-[#eef3f6]"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="grid grid-cols-1 items-start gap-6 p-8 xl:grid-cols-[320px_1fr_360px]">
 
@@ -92,9 +214,7 @@ export default function SavedLogs() {
           </div>
           <div className="flex flex-col gap-4 px-6 py-5">
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-bold text-[#0e5a74]">
-                Dataset
-              </label>
+              <label className="text-sm font-bold text-[#0e5a74]">Dataset</label>
               <div className="relative">
                 <select
                   value={activeDataset}
@@ -115,9 +235,7 @@ export default function SavedLogs() {
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-bold text-[#0e5a74]">
-                Keyword
-              </label>
+              <label className="mb-2 block text-sm font-bold text-[#0e5a74]">Keyword</label>
               <input
                 type="text"
                 placeholder="Search by log ID or summary..."
@@ -169,17 +287,15 @@ export default function SavedLogs() {
               <div className="flex flex-col gap-2">
                 {filtered.map((item) => (
                   <div
-                    key={item.id}
-                    onClick={() => setSelected(item)}
+                    key={item.analysisId || item.id}
+                    onClick={() => selectAnalysis(item)}
                     className={`cursor-pointer rounded-xl border px-4 py-3 transition-all ${
-                      selected?.id === item.id
+                      (selected?.analysisId || selected?.id) === (item.analysisId || item.id)
                         ? "border-[#e9782e] bg-orange-50"
                         : "border-[#d9e1e7] bg-[#f9fafb] hover:bg-[#eef3f6]"
                     }`}
                   >
-                    <p className="text-[#1f2a37] text-sm font-semibold mb-1">
-                      Log #{item.logId}
-                    </p>
+                    <p className="text-[#1f2a37] text-sm font-semibold mb-1">Log #{item.logId}</p>
                     <p className="text-[#1f2a37]/50 text-xs truncate">
                       {item.analysis?.summary || "No summary"}
                     </p>
@@ -201,7 +317,7 @@ export default function SavedLogs() {
             </h2>
             {selected && (
               <button
-                onClick={() => setSelected(null)}
+                onClick={() => { setSelected(null); setSearchParams({}); }}
                 className="text-[#1f2a37]/30 hover:text-[#1f2a37]/60 text-lg leading-none mt-0.5"
               >
                 x
@@ -213,8 +329,7 @@ export default function SavedLogs() {
             {selected ? (
               <div className="flex flex-col gap-5">
                 <p className="text-[#1f2a37]/50 text-sm">
-                  {selected.dataset} | Analyzed{" "}
-                  {new Date(selected.analyzedAt).toLocaleString()}
+                  {selected.dataset} | Analyzed {new Date(selected.analyzedAt).toLocaleString()}
                 </p>
 
                 {selected.prompt && (
@@ -226,25 +341,19 @@ export default function SavedLogs() {
 
                 <div>
                   <h4 className="text-sm font-semibold text-[#0e5a74] mb-1">Summary</h4>
-                  <p className="text-sm text-[#1f2a37]/70 leading-relaxed">
-                    {selected.analysis?.summary || "-"}
-                  </p>
+                  <p className="text-sm text-[#1f2a37]/70 leading-relaxed">{selected.analysis?.summary || "-"}</p>
                 </div>
 
                 <div>
                   <h4 className="text-sm font-semibold text-[#0e5a74] mb-1">Explanation</h4>
-                  <p className="text-sm text-[#1f2a37]/70 leading-relaxed">
-                    {selected.analysis?.explanation || "-"}
-                  </p>
+                  <p className="text-sm text-[#1f2a37]/70 leading-relaxed">{selected.analysis?.explanation || "-"}</p>
                 </div>
 
                 <div>
                   <h4 className="text-sm font-semibold text-[#0e5a74] mb-2">Anomalies</h4>
                   {selected.analysis?.anomalies?.length > 0 ? (
                     <ul className="list-disc pl-5 text-sm text-[#1f2a37]/70 space-y-1">
-                      {selected.analysis.anomalies.map((a, i) => (
-                        <li key={i}>{a}</li>
-                      ))}
+                      {selected.analysis.anomalies.map((a, i) => <li key={i}>{a}</li>)}
                     </ul>
                   ) : (
                     <p className="text-sm text-[#1f2a37]/40">None detected</p>
@@ -253,18 +362,16 @@ export default function SavedLogs() {
 
                 <div>
                   <h4 className="text-sm font-semibold text-[#0e5a74] mb-2">Related Resources</h4>
-                  {(selected.analysis?.related_resources || selected.analysis?.relatedResources || []).length > 0 ? (
+                  {(selected.analysis?.relatedResources || selected.analysis?.related_resources || []).length > 0 ? (
                     <ul className="list-disc pl-5 text-sm text-[#1f2a37]/70 space-y-1">
-                      {(selected.analysis?.related_resources || selected.analysis?.relatedResources || []).map((r, i) => (
-                        <li key={i}>{r}</li>
-                      ))}
+                      {(selected.analysis?.relatedResources || selected.analysis?.related_resources || []).map((r, i) => <li key={i}>{r}</li>)}
                     </ul>
                   ) : (
                     <p className="text-sm text-[#1f2a37]/40">None</p>
                   )}
                 </div>
 
-                <div className="flex gap-3 pt-1">
+                <div className="flex flex-wrap gap-3 pt-1">
                   <button
                     onClick={handleDownload}
                     className="px-5 py-2.5 rounded-lg bg-[#eef3f6] text-[#0e5a74] border border-[#d9e1e7] text-sm font-semibold hover:bg-[#e3ebf0] transition-colors"
@@ -272,10 +379,16 @@ export default function SavedLogs() {
                     Download
                   </button>
                   <button
-                    onClick={() => navigate("/analysis")}
+                    onClick={() => setShowModal(true)}
                     className="px-5 py-2.5 rounded-lg bg-[#e9782e] text-white text-sm font-bold hover:bg-[#d4691f] transition-colors"
                   >
                     View Analysis
+                  </button>
+                  <button
+                    onClick={handleCopyLink}
+                    className="px-5 py-2.5 rounded-lg bg-[#eef3f6] text-[#0e5a74] border border-[#d9e1e7] text-sm font-semibold hover:bg-[#e3ebf0] transition-colors"
+                  >
+                    {copySuccess ? "✓ Copied!" : "Copy Link"}
                   </button>
                 </div>
               </div>
