@@ -3,6 +3,23 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import { requestJson } from "../apiClient";
 
+// Parse "log:DATASET1:5" → { dataset: "DATASET1", logId: 5 } or null
+function parseLogResource(resource) {
+  const match = resource?.match(/^log:([^:]+):(\d+)$/);
+  if (!match) return null;
+  return { dataset: match[1], logId: Number(match[2]) };
+}
+
+const severityOptions = [
+  { label: "All", value: "" },
+  { label: "Critical (5)", value: "5" },
+  { label: "Error (4)", value: "4" },
+  { label: "Warning (3)", value: "3" },
+  { label: "Information (2)", value: "2" },
+  { label: "Debug (1)", value: "1" },
+  { label: "Trace (0)", value: "0" },
+];
+
 export default function SavedLogs() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -12,6 +29,9 @@ export default function SavedLogs() {
   const [analyses, setAnalyses] = useState([]);
   const [selected, setSelected] = useState(null);
   const [search, setSearch] = useState("");
+  const [severity, setSeverity] = useState("");
+  const [resource, setResource] = useState("");
+  const [resourceOptions, setResourceOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -47,6 +67,12 @@ export default function SavedLogs() {
         const list = response?.analyses || [];
         setAnalyses(list);
 
+        // Build resource options from loaded analyses
+        const categories = [...new Set(
+          list.map((a) => a.selectedLogs?.[0]?.category).filter(Boolean)
+        )].sort();
+        setResourceOptions(categories);
+
         // If URL has an id param, select that analysis
         const idFromUrl = searchParams.get("id");
         if (idFromUrl) {
@@ -80,14 +106,20 @@ export default function SavedLogs() {
     }
   }
 
-  const filtered = analyses.filter(
-    (a) =>
+  const filtered = analyses.filter((a) => {
+    const anchorLog = a.selectedLogs?.[0];
+    const matchesSeverity = !severity || String(anchorLog?.level) === severity;
+    const matchesResource = !resource || anchorLog?.category === resource;
+    const matchesSearch =
       String(a.logId).includes(search) ||
-      (a.analysis?.summary || "").toLowerCase().includes(search.toLowerCase())
-  );
+      (a.analysis?.summary || "").toLowerCase().includes(search.toLowerCase());
+    return matchesSeverity && matchesResource && matchesSearch;
+  });
 
   const clearFilters = () => {
     setSearch("");
+    setSeverity("");
+    setResource("");
     setActiveDataset(datasets[0] || "");
   };
 
@@ -111,7 +143,6 @@ export default function SavedLogs() {
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 2000);
     }).catch(() => {
-      // Fallback for browsers that block clipboard
       const input = document.createElement("input");
       input.value = url;
       document.body.appendChild(input);
@@ -188,7 +219,26 @@ export default function SavedLogs() {
                 <div>
                   <h3 className="mb-2 text-base font-semibold text-[#0e5a74]">Related Resources</h3>
                   <ul className="list-disc pl-5 space-y-1 text-sm text-[#1f2a37]/70">
-                    {(selected.analysis?.relatedResources || selected.analysis?.related_resources || []).map((item, i) => <li key={i}>{item}</li>)}
+                    {(selected.analysis?.relatedResources || selected.analysis?.related_resources || []).map((item, i) => {
+                      const parsed = parseLogResource(item);
+                      return (
+                        <li key={i}>
+                          {parsed ? (
+                            <button
+                              onClick={() => {
+                                setShowModal(false);
+                                navigate(`/main?dataset=${parsed.dataset}&logId=${parsed.logId}`);
+                              }}
+                              className="text-[#0e5a74] underline underline-offset-2 hover:text-[#e9782e] transition-colors"
+                            >
+                              {item}
+                            </button>
+                          ) : (
+                            item
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               )}
@@ -213,6 +263,63 @@ export default function SavedLogs() {
             <h2 className="text-xl font-semibold text-[#0e5a74]">Filters</h2>
           </div>
           <div className="flex flex-col gap-4 px-6 py-5">
+
+            {/* Severity */}
+            <div>
+              <label className="mb-2 block text-sm font-bold text-[#0e5a74]">Severity / Level</label>
+              <div className="relative">
+                <select
+                  value={severity}
+                  onChange={(e) => setSeverity(e.target.value)}
+                  className="w-full cursor-pointer appearance-none rounded-lg border border-[#cfd8df] bg-white px-4 py-3 pr-10 text-sm text-[#1f2a37] focus:border-[#0e5a74] focus:outline-none focus:ring-2 focus:ring-[#0e5a74]/10"
+                >
+                  {severityOptions.map((option) => (
+                    <option key={option.label} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[#0e5a74]">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            {/* Resource */}
+            <div>
+              <label className="mb-2 block text-sm font-bold text-[#0e5a74]">Resource/System</label>
+              <div className="relative">
+                <select
+                  value={resource}
+                  onChange={(e) => setResource(e.target.value)}
+                  className="w-full cursor-pointer appearance-none rounded-lg border border-[#cfd8df] bg-white px-4 py-3 pr-10 text-sm text-[#1f2a37] focus:border-[#0e5a74] focus:outline-none focus:ring-2 focus:ring-[#0e5a74]/10"
+                >
+                  <option value="">All Resources</option>
+                  {resourceOptions.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[#0e5a74]">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            {/* Keyword */}
+            <div>
+              <label className="mb-2 block text-sm font-bold text-[#0e5a74]">Keyword</label>
+              <input
+                type="text"
+                placeholder="Search by log ID or summary..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-lg border border-[#cfd8df] bg-white px-4 py-3 text-sm text-[#1f2a37] focus:border-[#0e5a74] focus:outline-none focus:ring-2 focus:ring-[#0e5a74]/10"
+              />
+            </div>
+
+            {/* Dataset */}
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-bold text-[#0e5a74]">Dataset</label>
               <div className="relative">
@@ -232,17 +339,6 @@ export default function SavedLogs() {
                   </svg>
                 </div>
               </div>
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm font-bold text-[#0e5a74]">Keyword</label>
-              <input
-                type="text"
-                placeholder="Search by log ID or summary..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-lg border border-[#cfd8df] bg-white px-4 py-3 text-sm text-[#1f2a37] focus:border-[#0e5a74] focus:outline-none focus:ring-2 focus:ring-[#0e5a74]/10"
-              />
             </div>
 
             <button

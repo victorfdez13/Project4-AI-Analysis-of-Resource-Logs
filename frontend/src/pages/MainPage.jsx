@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import { requestJson } from "../apiClient";
 const PAGE_SIZE = 20;
@@ -42,22 +43,10 @@ const analysisFocusOptions = [
       "Focus on repeated errors, failures, and recurring message patterns.",
   },
   {
-    id: "severity",
-    label: "Severity / Priority",
-    prompt:
-      "Focus on high severity, overall risk, and whether this should be escalated.",
-  },
-  {
     id: "data-changes",
     label: "Data Changes",
     prompt:
       "Focus on changed fields, entity updates, and what was modified.",
-  },
-  {
-    id: "timing",
-    label: "Off-hours Activity",
-    prompt:
-      "Focus on off-hours or weekend activity and whether the timing looks unusual.",
   },
 ];
 
@@ -122,6 +111,10 @@ function buildAnalysisPrompt(selectedFocusId, customPrompt) {
 }
 
 export default function MainPage() {
+  const [searchParams] = useSearchParams();
+  const initialDataset = searchParams.get("dataset") || "";
+  const initialLogId = searchParams.get("logId") ? Number(searchParams.get("logId")) : null;
+
   const [severity, setSeverity] = useState("");
   const [resource, setResource] = useState("");
   const [keyword, setKeyword] = useState("");
@@ -194,7 +187,16 @@ export default function MainPage() {
 
         const nextDatasets = response?.datasets || [];
         setDatasets(nextDatasets);
-        setActiveDataset(nextDatasets[0] || "");
+        // Use dataset from URL if provided, otherwise default to first
+        const targetDataset = initialDataset && nextDatasets.includes(initialDataset)
+          ? initialDataset
+          : nextDatasets[0] || "";
+        setActiveDataset(targetDataset);
+        // Set logId from URL if provided
+        if (initialLogId) {
+          selectedLogIdRef.current = initialLogId;
+          setSelectedLogId(initialLogId);
+        }
       } catch (error) {
         if (!controller.signal.aborted) {
           setPageError(error.message || "Unable to connect to the backend.");
@@ -454,12 +456,7 @@ export default function MainPage() {
                 </select>
                 <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[#0e5a74]">
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 9l-7 7-7-7"
-                    />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
               </div>
@@ -490,12 +487,7 @@ export default function MainPage() {
                 </select>
                 <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[#0e5a74]">
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 9l-7 7-7-7"
-                    />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
               </div>
@@ -521,28 +513,29 @@ export default function MainPage() {
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wide text-[#0e5a74]">
+              <label className="text-sm font-bold text-[#0e5a74]">
                 Dataset
               </label>
-              <select
-                value={activeDataset}
-                onChange={(e) => {
-                  setActiveDataset(e.target.value);
-                  setSelectedLogIds(new Set());
-                  setBulkAnalysis(null);
-                  setBulkAnalysisError("");
-                  setAnalysis(null);
-                  setAnalysisError("");
-                  setAnalysisSourceLabel("");
-                  setPageInfo((current) => ({ ...current, skip: 0 }));
-                }}
-                disabled={loadingPage || datasets.length === 0}
-                className="w-full rounded-lg border border-[#cfd8df] bg-white px-4 py-3 text-sm text-[#1f2a37] focus:border-[#0e5a74] focus:outline-none focus:ring-2 focus:ring-[#0e5a74]/10 disabled:opacity-50"
-              >
-                {datasets.map((ds) => (
-                  <option key={ds} value={ds}>{ds}</option>
-                ))}
-              </select>
+              <div className="relative">
+                <select
+                  value={activeDataset}
+                  onChange={(e) => {
+                    setActiveDataset(e.target.value);
+                    setPageInfo((current) => ({ ...current, skip: 0 }));
+                  }}
+                  disabled={loadingPage || datasets.length === 0}
+                  className="w-full cursor-pointer appearance-none rounded-lg border border-[#cfd8df] bg-white px-4 py-3 pr-10 text-sm text-[#1f2a37] focus:border-[#0e5a74] focus:outline-none focus:ring-2 focus:ring-[#0e5a74]/10 disabled:opacity-50"
+                >
+                  {datasets.map((ds) => (
+                    <option key={ds} value={ds}>{ds}</option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[#0e5a74]">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
             </div>
 
             <button
@@ -823,7 +816,6 @@ export default function MainPage() {
               <div className="flex flex-wrap gap-2">
                 {analysisFocusOptions.map((option) => {
                   const isSelected = selectedAnalysisFocus === option.id;
-
                   return (
                     <button
                       key={option.id}
@@ -844,38 +836,18 @@ export default function MainPage() {
                   );
                 })}
               </div>
-              <p className="text-xs leading-relaxed text-[#1f2a37]/55">
-                Pick a focus area so the Python analysis knows what to emphasize while Ollama writes the final explanation.
-              </p>
             </div>
             <div className="mt-3">
-              <div className="grid gap-2">
-                <button
-                  type="button"
-                  data-testid="analyze-button"
-                  onClick={handleAnalyze}
-                  disabled={!selectedLogId || analyzing}
-                  className="w-full rounded-lg px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
-                  style={{ background: "linear-gradient(135deg, #0e5a74, #e9782e)" }}
-                >
-                  {analyzing ? "Analyzing..." : "Analyze selected log"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleBulkAnalyze}
-                  disabled={selectedLogIds.size === 0 || bulkAnalyzing}
-                  className="w-full rounded-lg border border-[#d9e1e7] bg-[#eef3f6] px-4 py-3 text-sm font-semibold text-[#0e5a74] transition-colors hover:bg-[#e3ebf0] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {bulkAnalyzing
-                    ? "Analyzing selected logs..."
-                    : `Analyze selected logs (${selectedLogIds.size})`}
-                </button>
-              </div>
-              <p className="mt-2 text-xs leading-relaxed text-[#1f2a37]/55">
-                Use the checkboxes in the log table to add extra context so the
-                analysis can summarize patterns across related events, not just
-                the currently highlighted entry.
-              </p>
+              <button
+                type="button"
+                data-testid="analyze-button"
+                onClick={handleAnalyze}
+                disabled={!selectedLogId || analyzing}
+                className="w-full rounded-lg px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+                style={{ background: "linear-gradient(135deg, #0e5a74, #e9782e)" }}
+              >
+                {analyzing ? "Analyzing..." : "Analyze selected log(s)"}
+              </button>
             </div>
           </div>
 
@@ -910,14 +882,6 @@ export default function MainPage() {
                     </p>
                   </div>
                 )}
-                {bulkAnalysis.anomalies?.length > 0 && (
-                  <div>
-                    <p className="text-xs font-semibold text-[#0e5a74] mb-1">Anomalies</p>
-                    <ul className="list-disc pl-4 text-sm text-[#1f2a37]/70 space-y-0.5">
-                      {bulkAnalysis.anomalies.map((a, i) => <li key={i}>{a}</li>)}
-                    </ul>
-                  </div>
-                )}
                 {bulkAnalysis.points_of_interest?.length > 0 && (
                   <div>
                     <p className="text-xs font-semibold text-[#0e5a74] mb-1">Points of Interest</p>
@@ -947,44 +911,10 @@ export default function MainPage() {
                 {analysisError}
               </div>
             )}
-            {analysisSourceLabel && (
-              <div className="rounded-lg border border-[#d9e1e7] bg-[#f4f6f8] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#0e5a74]">
-                Result source: {analysisSourceLabel}
-              </div>
-            )}
             <div>
               <h3 className="mb-2 text-lg font-semibold text-[#0e5a74]">Summary:</h3>
               <p data-testid="analysis-summary" className="text-sm leading-relaxed text-[#1f2a37]/50">
                 {analysis?.summary || "-"}
-              </p>
-            </div>
-            <div>
-              <h3 className="mb-2 text-lg font-semibold text-[#0e5a74]">Anomalies:</h3>
-              <ul className="list-disc pl-5 text-sm leading-relaxed text-[#1f2a37]/50">
-                {(analysis?.anomalies?.length
-                  ? analysis.anomalies
-                  : ["-"]
-                ).map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-            {analysis?.points_of_interest?.length > 0 && (
-              <div>
-                <h3 className="mb-2 text-lg font-semibold text-[#0e5a74]">Points of Interest:</h3>
-                <ul className="list-disc pl-5 text-sm leading-relaxed text-[#1f2a37]/50">
-                  {analysis.points_of_interest.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            <div>
-              <h3 className="mb-2 text-lg font-semibold text-[#0e5a74]">
-                Recommendation:
-              </h3>
-              <p className="text-sm leading-relaxed text-[#1f2a37]/50">
-                {analysis?.explanation || "-"}
               </p>
             </div>
             <div className="flex flex-wrap gap-4 text-sm">
