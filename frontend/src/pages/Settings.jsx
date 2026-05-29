@@ -37,11 +37,16 @@ function formatDateTime(value) {
 }
 
 function StatusBadge({ healthy, label }) {
+  const toneClass =
+    healthy === null || healthy === undefined
+      ? "bg-slate-100 text-slate-600"
+      : healthy
+        ? "bg-teal-100 text-[#0e5a74]"
+        : "bg-red-100 text-red-600";
+
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-        healthy ? "bg-teal-100 text-[#0e5a74]" : "bg-red-100 text-red-600"
-      }`}
+      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${toneClass}`}
     >
       {label}
     </span>
@@ -71,6 +76,14 @@ function MetricTile({ label, value, hint }) {
   );
 }
 
+function getStatusLabel(healthy, healthyLabel = "Healthy", unhealthyLabel = "Attention") {
+  if (healthy === null || healthy === undefined) {
+    return "Unknown";
+  }
+
+  return healthy ? healthyLabel : unhealthyLabel;
+}
+
 export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -87,8 +100,8 @@ export default function Settings() {
         setLoading(true);
         setError("");
 
-        const [appResponse, databaseResponse, aiResponse, datasetResponse] =
-          await Promise.all([
+        const [appResult, databaseResult, aiResult, datasetResult] =
+          await Promise.allSettled([
             requestJson("/health", {}, { signal: controller.signal }),
             requestJson("/health/database", {}, { signal: controller.signal }),
             requestJson("/health/ai", {}, { signal: controller.signal }),
@@ -99,8 +112,11 @@ export default function Settings() {
           return;
         }
 
-        const nextDatasets = datasetResponse?.datasets || [];
-        const summaryResponses = await Promise.all(
+        const nextDatasets =
+          datasetResult.status === "fulfilled"
+            ? datasetResult.value?.datasets || []
+            : [];
+        const summaryResults = await Promise.allSettled(
           nextDatasets.map((dataset) =>
             requestJson(
               "/api/logs/summary",
@@ -114,10 +130,34 @@ export default function Settings() {
           return;
         }
 
-        setAppHealth(appResponse);
-        setDatabaseHealth(databaseResponse);
-        setAiHealth(aiResponse);
+        const summaryResponses = summaryResults
+          .filter((result) => result.status === "fulfilled")
+          .map((result) => result.value);
+        const loadIssues = [];
+
+        if (appResult.status === "rejected") {
+          loadIssues.push("Application status is unavailable.");
+        }
+        if (databaseResult.status === "rejected") {
+          loadIssues.push("Database health is degraded.");
+        }
+        if (aiResult.status === "rejected") {
+          loadIssues.push("Explanation service status is unavailable.");
+        }
+        if (datasetResult.status === "rejected") {
+          loadIssues.push("Dataset availability could not be loaded.");
+        }
+        if (summaryResults.some((result) => result.status === "rejected")) {
+          loadIssues.push("Some dataset summaries could not be loaded.");
+        }
+
+        setAppHealth(appResult.status === "fulfilled" ? appResult.value : null);
+        setDatabaseHealth(
+          databaseResult.status === "fulfilled" ? databaseResult.value : null
+        );
+        setAiHealth(aiResult.status === "fulfilled" ? aiResult.value : null);
         setDatasetSummaries(summaryResponses);
+        setError(loadIssues.join(" "));
       } catch (nextError) {
         if (!controller.signal.aborted) {
           setError(nextError.message || "Unable to load settings.");
@@ -146,6 +186,13 @@ export default function Settings() {
   )]
     .sort((left, right) => Number(left) - Number(right))
     .map(formatLevelDisplay);
+  const connectedServicesLabel = loading
+    ? "Checking..."
+    : appHealth?.status === "ok" &&
+        aiHealth?.isHealthy &&
+        (databaseHealth?.isHealthy ?? true)
+      ? "Active"
+      : "Degraded";
 
   return (
     <div className="min-h-screen bg-[#f4f6f8] font-sans text-[#1f2a37]">
@@ -168,7 +215,7 @@ export default function Settings() {
             <div className="rounded-xl border border-[#d9e1e7] bg-[#fbfcfd] px-4 py-3 text-sm text-[#1f2a37]/65">
               Connected services:{" "}
               <span className="font-semibold text-[#0e5a74]">
-                {loading ? "Checking..." : "Active"}
+                {connectedServicesLabel}
               </span>
             </div>
           </div>
@@ -188,7 +235,7 @@ export default function Settings() {
                   <p className="text-sm font-semibold text-[#0e5a74]">Application</p>
                   <StatusBadge
                     healthy={appHealth?.status === "ok"}
-                    label={appHealth?.status === "ok" ? "Healthy" : "Attention"}
+                    label={getStatusLabel(appHealth?.status === "ok")}
                   />
                 </div>
                 <p className="mt-3 text-sm text-[#1f2a37]/60">
@@ -200,7 +247,7 @@ export default function Settings() {
                   <p className="text-sm font-semibold text-[#0e5a74]">Data Store</p>
                   <StatusBadge
                     healthy={databaseHealth?.isHealthy}
-                    label={databaseHealth?.isHealthy ? "Healthy" : "Attention"}
+                    label={getStatusLabel(databaseHealth?.isHealthy)}
                   />
                 </div>
                 <p className="mt-3 text-sm text-[#1f2a37]/60">
@@ -209,10 +256,10 @@ export default function Settings() {
               </div>
               <div className="rounded-xl border border-[#d9e1e7] bg-[#fbfcfd] px-4 py-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-[#0e5a74]">Analysis Service</p>
+                  <p className="text-sm font-semibold text-[#0e5a74]">Explanation Service</p>
                   <StatusBadge
                     healthy={aiHealth?.isHealthy}
-                    label={aiHealth?.isHealthy ? "Healthy" : "Attention"}
+                    label={getStatusLabel(aiHealth?.isHealthy)}
                   />
                 </div>
                 <p className="mt-3 text-sm text-[#1f2a37]/60">
@@ -240,9 +287,9 @@ export default function Settings() {
                 hint="Current level values used across the loaded activity records."
               />
               <MetricTile
-                label="Analysis Status"
+                label="Service Status"
                 value={loading ? "Loading..." : aiHealth?.status || "-"}
-                hint="Shows whether the analysis service is ready to use."
+                hint="Shows whether the explanation service is ready to use."
               />
             </div>
           </SectionCard>
@@ -281,7 +328,11 @@ export default function Settings() {
                       </div>
                       <StatusBadge
                         healthy={health?.isAvailable}
-                        label={health?.isAvailable ? "Available" : "Missing"}
+                        label={getStatusLabel(
+                          health?.isAvailable,
+                          "Available",
+                          "Missing"
+                        )}
                       />
                     </div>
 

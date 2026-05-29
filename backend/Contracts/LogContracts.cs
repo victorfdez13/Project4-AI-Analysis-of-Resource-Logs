@@ -141,7 +141,8 @@ public sealed record LogsBatchRequest(
     [property: JsonPropertyName("prompt")] string? Prompt,
     [property: JsonPropertyName("level")] string? Level = null,
     [property: JsonPropertyName("category")] string? Category = null,
-    [property: JsonPropertyName("search")] string? Search = null);
+    [property: JsonPropertyName("search")] string? Search = null,
+    [property: JsonPropertyName("entityId")] string? EntityId = null);
 
 public sealed record AiBatchAnalyzeResponse(
     [property: JsonPropertyName("summary")] string Summary,
@@ -156,7 +157,8 @@ public sealed record LogAnalyzeRequest(
     [property: JsonPropertyName("selectedLogIds")] IReadOnlyList<int>? SelectedLogIds = null,
     [property: JsonPropertyName("level")] string? Level = null,
     [property: JsonPropertyName("category")] string? Category = null,
-    [property: JsonPropertyName("search")] string? Search = null);
+    [property: JsonPropertyName("search")] string? Search = null,
+    [property: JsonPropertyName("entityId")] string? EntityId = null);
 
 public sealed record SavedAnalysisResult(
     string Id,
@@ -164,4 +166,14 @@ public sealed record SavedAnalysisResult(
     int LogId,
     string AnalyzedAt,
     string? Prompt,
-    AiAnalyzeResponse Analysis);
+    AiAnalyzeResponse Analysis,
+    IReadOnlyList<ResourceLogSummary>? SelectedLogs = null);
+
+public sealed record AiChatRequest(
+    [property: JsonPropertyName("sessionId")] string? SessionId,
+    [property: JsonPropertyName("prompt")] string Prompt);
+
+public sealed record AiChatResponse(
+    [property: JsonPropertyName("session_id")] string SessionId,
+    [property: JsonPropertyName("response")] string Response,
+    [property: JsonPropertyName("summary")] string Summary);

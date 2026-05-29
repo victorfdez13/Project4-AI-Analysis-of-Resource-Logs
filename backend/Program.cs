@@ -207,9 +207,30 @@ datasetRoutes.MapGet("/", (DatasetStore datasetStore) =>
     });
 });
 
-datasetRoutes.MapPost("/", (DatasetRegistrationRequest request, DatasetStore datasetStore) =>
+datasetRoutes.MapPost("/", async (
+    DatasetRegistrationRequest request,
+    DatasetStore datasetStore,
+    SqlLogRepository repository,
+    CancellationToken cancellationToken) =>
 {
-    var error = datasetStore.Add(request.Name ?? string.Empty);
+    var requestedName = request.Name ?? string.Empty;
+    var validationError = DatasetStore.ValidateName(requestedName);
+    if (validationError is not null)
+    {
+        return Results.BadRequest(new { message = validationError });
+    }
+
+    var normalizedName = requestedName.Trim();
+    var exists = await repository.DatasetExistsAsync(normalizedName, cancellationToken);
+    if (!exists)
+    {
+        return Results.BadRequest(new
+        {
+            message = $"Dataset '{normalizedName}' does not exist in SQL Server or is missing dbo.Log."
+        });
+    }
+
+    var error = datasetStore.Add(normalizedName);
     if (error is not null)
     {
         return Results.BadRequest(new { message = error });
@@ -308,6 +329,7 @@ logRoutes.MapGet("/", async (
     string? level,
     string? category,
     string? search,
+    string? entityId,
     int skip,
     int take,
     HttpContext context,
@@ -319,7 +341,7 @@ logRoutes.MapGet("/", async (
 
     try
     {
-        var response = await repository.GetLogsAsync(dataset, level, category, search, skip, take, cancellationToken);
+        var response = await repository.GetLogsAsync(dataset, level, category, search, entityId, skip, take, cancellationToken);
         return Results.Ok(response);
     }
     catch (ArgumentException exception)
@@ -372,6 +394,33 @@ logRoutes.MapGet("/summary", async (
     }
 }).RequireAuthorization("ViewerAccess");
 
+logRoutes.MapPost("/chat", async (
+    AiChatRequest request,
+    AiAnalysisClient aiClient,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var response = await aiClient.ChatAsync(
+            request.Prompt,
+            NormalizeOptionalText(request.SessionId),
+            cancellationToken);
+
+        return Results.Ok(response);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { message = exception.Message });
+    }
+    catch (ServiceUnavailableException exception)
+    {
+        return Results.Problem(
+            title: "Chat service unavailable",
+            detail: exception.Message,
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+}).RequireAuthorization("ViewerAccess");
+
 // Analyze endpoint - uses Python AI for structured analysis and ai-service for text generation.
 logRoutes.MapPost("/{id:int}/analyze", async (
     int id,
@@ -406,6 +455,7 @@ logRoutes.MapPost("/{id:int}/analyze", async (
             request?.Level,
             request?.Category,
             request?.Search,
+            request?.EntityId,
             request?.SelectedLogIds);
 
         var analysis = await pythonAiClient.AnalyzeAsync(
@@ -489,6 +539,7 @@ logRoutes.MapPost("/analyze-batch", async (
             request.Level,
             request.Category,
             request.Search,
+            request.EntityId,
             request.LogIds);
 
         var analysis = await pythonAiClient.AnalyzeAsync(
@@ -707,6 +758,7 @@ static IReadOnlyDictionary<string, object?> BuildActiveFilters(
     string? level,
     string? category,
     string? search,
+    string? entityId,
     IReadOnlyList<int>? selectedLogIds)
 {
     var filters = new Dictionary<string, object?>
@@ -717,6 +769,7 @@ static IReadOnlyDictionary<string, object?> BuildActiveFilters(
     var normalizedLevel = NormalizeOptionalText(level);
     var normalizedCategory = NormalizeOptionalText(category);
     var normalizedSearch = NormalizeOptionalText(search);
+    var normalizedEntityId = NormalizeOptionalText(entityId);
 
     if (normalizedLevel is not null)
     {
@@ -731,6 +784,11 @@ static IReadOnlyDictionary<string, object?> BuildActiveFilters(
     if (normalizedSearch is not null)
     {
         filters["search"] = normalizedSearch;
+    }
+
+    if (normalizedEntityId is not null)
+    {
+        filters["entityId"] = normalizedEntityId;
     }
 
     var distinctLogIds = selectedLogIds?.Distinct().ToArray();

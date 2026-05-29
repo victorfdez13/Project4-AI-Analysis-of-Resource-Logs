@@ -203,6 +203,12 @@ public sealed class MongoPromptRepository
     private static SavedAnalysisResult MapDocument(BsonDocument document)
     {
         var analysisDoc = document["analysis"].AsBsonDocument;
+        var selectedLogs = document.Contains("selectedLogs")
+            ? document["selectedLogs"]
+                .AsBsonArray
+                .Select(MapSelectedLog)
+                .ToList()
+            : null;
 
         var pointsOfInterest = analysisDoc.Contains("pointsOfInterest")
             ? analysisDoc["pointsOfInterest"].AsBsonArray.Select(x => x.AsString).ToList()
@@ -225,7 +231,27 @@ public sealed class MongoPromptRepository
             document["logId"].ToInt32(),
             document["analyzedAt"].AsString,
             document.Contains("prompt") ? document["prompt"].AsString : null,
-            analysis);
+            analysis,
+            selectedLogs);
+    }
+
+    private static ResourceLogSummary MapSelectedLog(BsonValue value)
+    {
+        var document = value.AsBsonDocument;
+        var time = DateTimeOffset.TryParse(document.GetValue("time", string.Empty).AsString, out var parsedTime)
+            ? parsedTime
+            : DateTimeOffset.MinValue;
+
+        return new ResourceLogSummary(
+            document.GetValue("dataset", string.Empty).AsString,
+            document.GetValue("logId", -1).ToInt32(),
+            document.GetValue("category", string.Empty).AsString,
+            time,
+            document.GetValue("message", string.Empty).AsString,
+            document.GetValue("level", string.Empty).AsString,
+            document.TryGetValue("mainEntityId", out var mainEntityId) && !mainEntityId.IsBsonNull ? mainEntityId.AsString : null,
+            document.TryGetValue("impersonatorMainEntityId", out var impersonatorId) && !impersonatorId.IsBsonNull ? impersonatorId.AsString : null,
+            document.TryGetValue("sessionId", out var sessionId) && !sessionId.IsBsonNull ? sessionId.AsString : null);
     }
 
     public async Task<IReadOnlyList<BsonDocument>> GetUserHistoryAsync(

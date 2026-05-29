@@ -113,24 +113,26 @@ public sealed class UserStore
             if (existing is null)
                 return (null, $"User '{username}' not found.");
 
-            if (!string.IsNullOrWhiteSpace(input.Role) && !UserRoles.IsValid(input.Role))
-                return (null, $"Unknown role '{input.Role}'.");
+            var candidate = Clone(existing);
 
             if (!string.IsNullOrWhiteSpace(input.Role))
-                existing.Role = input.Role.ToLowerInvariant();
+                candidate.Role = input.Role.ToLowerInvariant();
 
             if (input.AllowedDatasets is not null)
-                existing.AllowedDatasets = input.AllowedDatasets.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                candidate.AllowedDatasets = input.AllowedDatasets
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
 
             if (!string.IsNullOrWhiteSpace(input.Password))
-                existing.Password = input.Password;
+                candidate.Password = input.Password;
 
-            // Customer scope rule: exactly one dataset.
-            if (string.Equals(existing.Role, UserRoles.Customer, StringComparison.OrdinalIgnoreCase) &&
-                existing.AllowedDatasets.Count != 1)
-            {
-                return (null, "A customer must have exactly one assigned dataset.");
-            }
+            var validationError = Validate(candidate);
+            if (validationError is not null)
+                return (null, validationError);
+
+            existing.Role = candidate.Role;
+            existing.AllowedDatasets = new List<string>(candidate.AllowedDatasets);
+            existing.Password = candidate.Password;
 
             Save();
             return (Clone(existing), null);

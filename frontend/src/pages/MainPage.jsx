@@ -118,6 +118,7 @@ export default function MainPage() {
   const [severity, setSeverity] = useState("");
   const [resource, setResource] = useState("");
   const [keyword, setKeyword] = useState("");
+  const [entityId, setEntityId] = useState("");
   const [datasets, setDatasets] = useState([]);
   const [activeDataset, setActiveDataset] = useState("");
   const [resourceOptions, setResourceOptions] = useState([]);
@@ -141,7 +142,6 @@ export default function MainPage() {
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [analysisSourceLabel, setAnalysisSourceLabel] = useState("");
   const [pageError, setPageError] = useState("");
   const [logsError, setLogsError] = useState("");
   const [detailError, setDetailError] = useState("");
@@ -155,9 +155,9 @@ export default function MainPage() {
     setSeverity("");
     setResource("");
     setKeyword("");
+    setEntityId("");
     setAnalysis(null);
     setAnalysisError("");
-    setAnalysisSourceLabel("");
     setSelectedAnalysisFocus("");
     setUserPrompt("");
     setSelectedLogIds(new Set());
@@ -232,6 +232,7 @@ export default function MainPage() {
             level: severity,
             category: resource,
             search: keyword.trim(),
+            entityId: entityId.trim(),
             skip: pageInfo.skip,
             take: pageInfo.take,
           },
@@ -285,7 +286,7 @@ export default function MainPage() {
     loadLogs();
 
     return () => controller.abort();
-  }, [activeDataset, severity, resource, keyword, pageInfo.skip, pageInfo.take]);
+  }, [activeDataset, severity, resource, keyword, entityId, pageInfo.skip, pageInfo.take]);
 
   useEffect(() => {
     if (!activeDataset || !selectedLogId) {
@@ -345,6 +346,7 @@ export default function MainPage() {
         ...(severity ? { level: severity } : {}),
         ...(resource ? { category: resource } : {}),
         ...(keyword.trim() ? { search: keyword.trim() } : {}),
+        ...(entityId.trim() ? { entityId: entityId.trim() } : {}),
       };
 
       const response = await requestJson(
@@ -362,11 +364,9 @@ export default function MainPage() {
         anomalies: response.analysis?.anomalies || [],
         points_of_interest: response.analysis?.points_of_interest || [],
       });
-      setAnalysisSourceLabel("Python AI + Ollama Text");
       setSelectedLog(response.log || selectedLog);
     } catch (error) {
       setAnalysis(null);
-      setAnalysisSourceLabel("");
       setAnalysisError(error.message || "Unable to analyze the selected log.");
     } finally {
       setAnalyzing(false);
@@ -390,6 +390,7 @@ export default function MainPage() {
         ...(severity ? { level: severity } : {}),
         ...(resource ? { category: resource } : {}),
         ...(keyword.trim() ? { search: keyword.trim() } : {}),
+        ...(entityId.trim() ? { entityId: entityId.trim() } : {}),
       };
       const result = await requestJson(
         "/api/logs/analyze-batch",
@@ -420,7 +421,11 @@ export default function MainPage() {
   const infoCount = countByLevel(logs, 2);
   const warningCount = countByLevel(logs, 3);
   const errorCount = countByLevel(logs, 4) + countByLevel(logs, 5);
-  const hasActiveFilters = severity !== "" || resource.trim() !== "" || keyword.trim() !== "";
+  const hasActiveFilters =
+    severity !== "" ||
+    resource.trim() !== "" ||
+    keyword.trim() !== "" ||
+    entityId.trim() !== "";
 
   return (
     <div className="min-h-screen bg-[#f4f6f8] font-sans text-[#1f2a37]">
@@ -512,6 +517,28 @@ export default function MainPage() {
               />
             </div>
 
+            <div>
+              <label className="mb-2 block text-sm font-bold text-[#0e5a74]">
+                Entity ID
+              </label>
+              <input
+                type="text"
+                placeholder="Search by teacher, student, or other ID"
+                value={entityId}
+                onChange={(event) => {
+                  setEntityId(event.target.value);
+                  setPageInfo((current) => ({
+                    ...current,
+                    skip: 0,
+                  }));
+                }}
+                className="w-full rounded-lg border border-[#cfd8df] bg-white px-4 py-3 text-sm text-[#1f2a37] focus:border-[#0e5a74] focus:outline-none focus:ring-2 focus:ring-[#0e5a74]/10"
+              />
+              <p className="mt-1 text-xs text-[#1f2a37]/50">
+                Matches related ID references.
+              </p>
+            </div>
+
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-bold text-[#0e5a74]">
                 Dataset
@@ -562,10 +589,10 @@ export default function MainPage() {
               </span>
             </div>
             <div className="px-6 py-5">
-              <div className="overflow-hidden rounded-xl border border-[#d9e1e7]">
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-[#eef3f6]">
+            <div className="overflow-hidden rounded-xl border border-[#d9e1e7]">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="bg-[#eef3f6]">
                       <th className="w-10 px-3 py-3 text-center">
                         <input
                           type="checkbox"
@@ -589,8 +616,8 @@ export default function MainPage() {
                         </th>
                       ))}
                     </tr>
-                  </thead>
-                  <tbody>
+                </thead>
+                <tbody>
                     {logs.map((log) => (
                       <tr
                         key={log.logId}
@@ -598,7 +625,6 @@ export default function MainPage() {
                           setSelectedLogId(log.logId);
                           setSelectedLog(log);
                           setAnalysis(null);
-                          setAnalysisSourceLabel("");
                           setAnalysisError("");
                           setBulkAnalysis(null);
                           setBulkAnalysisError("");

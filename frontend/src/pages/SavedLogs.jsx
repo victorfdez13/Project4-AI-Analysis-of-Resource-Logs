@@ -35,7 +35,94 @@ export default function SavedLogs() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [showChatModal, setShowChatModal] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatSessionId, setChatSessionId] = useState("");
+  const [chatting, setChatting] = useState(false);
+  const [chatError, setChatError] = useState("");
+
+  function buildChatPrompt(item, prompt) {
+    const anchorLog = item?.selectedLogs?.[0];
+    const anomalies = item?.analysis?.anomalies || [];
+    const relatedResources =
+      item?.analysis?.relatedResources || item?.analysis?.related_resources || [];
+
+    return [
+      `You are helping with saved log ${item?.logId} from dataset ${item?.dataset}.`,
+      anchorLog?.category ? `Category: ${anchorLog.category}` : null,
+      anchorLog?.message ? `Log message: ${anchorLog.message}` : null,
+      item?.analysis?.summary ? `Saved summary: ${item.analysis.summary}` : null,
+      item?.analysis?.explanation ? `Saved explanation: ${item.analysis.explanation}` : null,
+      anomalies.length > 0 ? `Detected anomalies: ${anomalies.join("; ")}` : null,
+      relatedResources.length > 0 ? `Related resources: ${relatedResources.join(", ")}` : null,
+      item?.prompt ? `Previous prompt: ${item.prompt}` : null,
+      `User question: ${prompt.trim()}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  async function loadAnalysesForDataset(
+    datasetToLoad,
+    preferredId,
+    preferredLogId = null,
+    preferredPrompt = null
+  ) {
+    if (!datasetToLoad) return [];
+
+    try {
+      setLoading(true);
+      setError("");
+      const response = await requestJson("/api/logs/analyses", {
+        dataset: datasetToLoad,
+        limit: 50,
+      });
+      const list = response?.analyses || [];
+      setAnalyses(list);
+
+      const categories = [...new Set(
+        list.map((a) => a.selectedLogs?.[0]?.category).filter(Boolean)
+      )].sort();
+      setResourceOptions(categories);
+
+      const idFromUrl = preferredId === undefined ? searchParams.get("id") : preferredId;
+      let nextSelected = null;
+
+      if (idFromUrl) {
+        nextSelected = list.find(
+          (a) => a.analysisId === idFromUrl || a.id === idFromUrl
+        ) || null;
+      }
+
+      if (!nextSelected && preferredLogId !== null) {
+        nextSelected = list.find((a) => (
+          a.logId === preferredLogId &&
+          (preferredPrompt === null || (a.prompt || "") === preferredPrompt)
+        )) || null;
+      }
+
+      nextSelected = nextSelected || list[0] || null;
+      setSelected(nextSelected);
+
+      const nextId = nextSelected?.analysisId || nextSelected?.id;
+      if (nextId) {
+        setSearchParams({ id: nextId });
+      } else {
+        setSearchParams({});
+      }
+
+      return list;
+    } catch (err) {
+      setError(`Failed to load analyses: ${err.message}`);
+      setAnalyses([]);
+      setSelected(null);
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  }
 
   // Load datasets
   useEffect(() => {
@@ -55,45 +142,16 @@ export default function SavedLogs() {
   // Load analyses when dataset changes
   useEffect(() => {
     if (!activeDataset) return;
-
-    async function loadAnalyses() {
-      try {
-        setLoading(true);
-        setError("");
-        const response = await requestJson("/api/logs/analyses", {
-          dataset: activeDataset,
-          limit: 50,
-        });
-        const list = response?.analyses || [];
-        setAnalyses(list);
-
-        // Build resource options from loaded analyses
-        const categories = [...new Set(
-          list.map((a) => a.selectedLogs?.[0]?.category).filter(Boolean)
-        )].sort();
-        setResourceOptions(categories);
-
-        // If URL has an id param, select that analysis
-        const idFromUrl = searchParams.get("id");
-        if (idFromUrl) {
-          const found = list.find(
-            (a) => a.analysisId === idFromUrl || a.id === idFromUrl
-          );
-          setSelected(found || list[0] || null);
-        } else {
-          setSelected(list[0] || null);
-        }
-      } catch (err) {
-        setError(`Failed to load analyses: ${err.message}`);
-        setAnalyses([]);
-        setSelected(null);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadAnalyses();
+    loadAnalysesForDataset(activeDataset);
   }, [activeDataset]);
+
+  useEffect(() => {
+    setChatInput("");
+    setChatMessages([]);
+    setChatSessionId("");
+    setChatError("");
+    setShowChatModal(false);
+  }, [selected?.analysisId, selected?.id, selected?.prompt]);
 
   // Update URL when selected changes
   function selectAnalysis(item) {
@@ -154,9 +212,144 @@ export default function SavedLogs() {
     });
   }
 
+  async function handleChatSubmit() {
+    if (!selected || !chatInput.trim()) return;
+
+    const userText = chatInput.trim();
+    const outgoingPrompt = chatSessionId
+      ? userText
+      : buildChatPrompt(selected, userText);
+
+    try {
+      setChatting(true);
+      setChatError("");
+      setChatMessages((current) => [
+        ...current,
+        { role: "user", content: userText },
+      ]);
+      setChatInput("");
+
+      const response = await requestJson(
+        "/api/logs/chat",
+        {},
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: chatSessionId || null,
+            prompt: outgoingPrompt,
+          }),
+        }
+      );
+
+      setChatSessionId(response.session_id || response.sessionId || "");
+      setChatMessages((current) => [
+        ...current,
+        {
+          role: "assistant",
+          content: response.response || "No response was returned.",
+        },
+      ]);
+    } catch (err) {
+      setChatMessages((current) => current.slice(0, Math.max(0, current.length - 1)));
+      setChatInput(userText);
+      setChatError(err.message || "Unable to get a response right now.");
+    } finally {
+      setChatting(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#f4f6f8] font-sans text-[#1f2a37]">
       <Navbar active="Saved Logs" />
+
+      {showChatModal && selected && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4"
+          onClick={() => setShowChatModal(false)}
+        >
+          <div
+            className="relative flex w-full max-w-3xl flex-col overflow-hidden rounded-[20px] bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between border-b border-[#d9e1e7] bg-[#fbfcfd] px-6 py-5">
+              <div>
+                <h2 className="text-xl font-semibold text-[#0e5a74]">Ollama Chat</h2>
+                <p className="mt-1 text-sm text-[#1f2a37]/55">
+                  Chat about log #{selected.logId} in {selected.dataset}.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowChatModal(false)}
+                className="text-2xl leading-none text-[#1f2a37]/30 hover:text-[#1f2a37]/70"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="border-b border-[#d9e1e7] bg-[#fff7f2] px-6 py-4 text-sm text-[#1f2a37]/70">
+              Follow-up questions stay tied to the selected saved log while this chat is open.
+            </div>
+
+            <div className="flex max-h-[55vh] flex-col gap-4 overflow-y-auto bg-[#f8fafb] px-6 py-5">
+              {chatMessages.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-[#d9e1e7] bg-white px-4 py-5 text-sm text-[#1f2a37]/55">
+                  Start the conversation with a follow-up question about this saved log.
+                </div>
+              ) : (
+                chatMessages.map((message, index) => (
+                  <div
+                    key={`${message.role}-${index}`}
+                    className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
+                      message.role === "user"
+                        ? "ml-auto bg-[#0e5a74] text-white"
+                        : "border border-[#d9e1e7] bg-white text-[#1f2a37]/80"
+                    }`}
+                  >
+                    {message.content}
+                  </div>
+                ))
+              )}
+
+              {chatting && (
+                <div className="max-w-[85%] rounded-2xl border border-[#d9e1e7] bg-white px-4 py-3 text-sm text-[#1f2a37]/55 shadow-sm">
+                  Getting Ollama response...
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-[#d9e1e7] bg-white px-6 py-5">
+              {chatError && (
+                <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                  {chatError}
+                </div>
+              )}
+              <div className="flex gap-3">
+                <textarea
+                  rows={3}
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      void handleChatSubmit();
+                    }
+                  }}
+                  placeholder="Ask a follow-up about this log..."
+                  className="flex-1 resize-none rounded-xl border border-[#cfd8df] bg-[#fbfcfd] px-4 py-3 text-sm text-[#1f2a37] placeholder-[#1f2a37]/40 focus:border-[#e9782e] focus:outline-none focus:ring-2 focus:ring-[#e9782e]/10"
+                />
+                <button
+                  onClick={() => void handleChatSubmit()}
+                  disabled={chatting || !chatInput.trim()}
+                  className="self-end rounded-xl bg-[#e9782e] px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#d4691f] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Full Analysis Modal */}
       {showModal && selected && (
@@ -434,6 +627,26 @@ export default function SavedLogs() {
                     <p className="text-sm text-[#1f2a37]/70 italic">{selected.prompt}</p>
                   </div>
                 )}
+
+                <div className="rounded-xl border border-[#f3d3bc] bg-[#fff7f2] px-4 py-4">
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-[#b95d1d]">Open Ollama chat</h4>
+                      <p className="mt-1 text-xs leading-relaxed text-[#1f2a37]/60">
+                        Open a popup chat to ask follow-up questions about this saved log.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowChatModal(true);
+                        setChatError("");
+                      }}
+                      className="rounded-lg bg-[#e9782e] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#d4691f] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Open Ollama chat
+                    </button>
+                  </div>
+                </div>
 
                 <div>
                   <h4 className="text-sm font-semibold text-[#0e5a74] mb-1">Summary</h4>

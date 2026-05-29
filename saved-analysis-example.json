@@ -1,0 +1,44 @@
+{
+  "analysisId": "137e3ecd-5cf2-4086-a01d-f6b38355002d",
+  "analysisName": "Analysis-1",
+  "dataset": "DATASET1",
+  "logId": 1,
+  "createdByUserId": "admin",
+  "createdByRole": "admin",
+  "sharedWithSupport": false,
+  "prompt": "",
+  "analyzedAt": "2026-05-28T06:38:51.4973912+00:00",
+  "selectedLogs": [
+    {
+      "dataset": "DATASET1",
+      "logId": 1,
+      "category": "LoginSystem",
+      "time": "2026-01-27T08:14:22.0000000+00:00",
+      "message": "Niklas SpeedAdmin ApS speedadmin medarbejder har loggat in. (10.200.36.50)",
+      "level": "2",
+      "mainEntityId": "183",
+      "impersonatorMainEntityId": null,
+      "sessionId": "q3pglmbna424vs4mg5m4gpfp"
+    }
+  ],
+  "analysis": {
+    "summary": "A login attempt was made by a SpeedAdmin employee from IP address 10.200.36.50.",
+    "explanation": "The log indicates that an authorized user successfully logged in using valid credentials.",
+    "anomalies": [
+      "The activity seems to spread across several related logs."
+    ],
+    "pointsOfInterest": [
+      "The analysis respected these filters: dataset=DATASET1.",
+      "Most nearby entries fall into these categories: LoginSystem, StudentProfilePage, LoginService."
+    ],
+    "relatedResources": [
+      "log:DATASET1:1",
+      "mainEntityId:183",
+      "sessionId:q3pglmbna424vs4mg5m4gpfp",
+      "entity:1:1026"
+    ]
+  },
+  "activeFilters": {
+    "dataset": "DATASET1"
+  }
+}

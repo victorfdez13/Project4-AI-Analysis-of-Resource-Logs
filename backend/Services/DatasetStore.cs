@@ -57,7 +57,7 @@ public sealed class DatasetStore
     /// <summary>Add a dataset registration. Returns null on success or a user-facing error.</summary>
     public string? Add(string name)
     {
-        var error = Validate(name);
+        var error = ValidateName(name);
         if (error is not null) return error;
 
         var trimmed = name.Trim();
@@ -74,7 +74,7 @@ public sealed class DatasetStore
         return null;
     }
 
-    private static string? Validate(string? name)
+    public static string? ValidateName(string? name)
     {
         if (string.IsNullOrWhiteSpace(name))
             return "Dataset name is required.";

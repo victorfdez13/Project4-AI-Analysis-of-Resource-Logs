@@ -294,4 +294,55 @@ public sealed class AiAnalysisClient
             throw new ServiceUnavailableException("Invalid response from service", ex);
         }
     }
+
+    public async Task<AiChatResponse> ChatAsync(
+        string prompt,
+        string? sessionId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            throw new ValidationException("Prompt cannot be empty");
+        }
+
+        var payload = new AiChatRequest(sessionId, prompt.Trim());
+
+        try
+        {
+            using var response = await _httpClient.PostAsJsonAsync(
+                "chat",
+                payload,
+                cancellationToken: cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Chat request failed with status {StatusCode}: {ResponseBody}",
+                    (int)response.StatusCode, responseBody);
+
+                throw new ServiceUnavailableException(
+                    $"AI service returned HTTP {(int)response.StatusCode}: {responseBody}");
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<AiChatResponse>(
+                cancellationToken: cancellationToken);
+
+            return result ?? throw new ServiceUnavailableException("AI service returned an empty chat response.");
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Chat request timed out");
+            throw new ServiceUnavailableException("Chat request timeout");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Chat request HTTP error");
+            throw new ServiceUnavailableException($"Service error: {ex.Message}", ex);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Failed to parse chat response");
+            throw new ServiceUnavailableException("Invalid response from service", ex);
+        }
+    }
 }

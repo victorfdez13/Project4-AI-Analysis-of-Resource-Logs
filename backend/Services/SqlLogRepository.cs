@@ -24,6 +24,25 @@ public sealed class SqlLogRepository
 
     public IReadOnlyList<string> GetConfiguredDatasets() => _datasetStore.All();
 
+    public async Task<bool> DatasetExistsAsync(string dataset, CancellationToken cancellationToken)
+    {
+        if (!IsSafeSqlIdentifier(dataset))
+        {
+            return false;
+        }
+
+        try
+        {
+            await using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+            return await DatasetExistsAsync(connection, dataset.Trim(), cancellationToken);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task<SqlServerHealth> CheckHealthAsync(CancellationToken cancellationToken)
     {
         var datasetResults = new List<DatasetHealth>();
@@ -67,6 +86,7 @@ public sealed class SqlLogRepository
         string? level,
         string? category,
         string? search,
+        string? entityId,
         int skip,
         int take,
         CancellationToken cancellationToken)
@@ -75,6 +95,7 @@ public sealed class SqlLogRepository
         var normalizedLevel = NormalizeFilter(level);
         var normalizedCategory = NormalizeFilter(category);
         var normalizedSearch = NormalizeFilter(search);
+        var normalizedEntityId = NormalizeFilter(entityId);
         var normalizedSkip = Math.Max(0, skip);
         var normalizedTake = Math.Clamp(take == 0 ? 100 : take, 1, 200);
 
@@ -93,11 +114,23 @@ WHERE (@Level IS NULL OR l.Level = @Level)
       OR CONVERT(NVARCHAR(20), l.Level) LIKE '%' + @Search + '%'
       OR CONVERT(NVARCHAR(100), l.MainEntityId) LIKE '%' + @Search + '%'
       OR CONVERT(NVARCHAR(100), l.SessionId) LIKE '%' + @Search + '%'
+  )
+  AND (
+      @EntityId IS NULL
+      OR CONVERT(NVARCHAR(100), l.MainEntityId) = @EntityId
+      OR CONVERT(NVARCHAR(100), l.ImpersonatorMainEntityId) = @EntityId
+      OR l.Message LIKE '%' + @EntityId + '%'
+      OR EXISTS (
+          SELECT 1
+          FROM [{resolvedDataset}].[dbo].[LogEntity] le
+          WHERE le.LogId = l.LogId
+            AND CONVERT(NVARCHAR(100), le.EntityId) = @EntityId
+      )
   );
 """;
 
         await using var countCommand = new SqlCommand(countSql, connection);
-        AddSharedParameters(countCommand, normalizedLevel, normalizedCategory, normalizedSearch);
+        AddSharedParameters(countCommand, normalizedLevel, normalizedCategory, normalizedSearch, normalizedEntityId);
         var totalCount = Convert.ToInt32(await countCommand.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
 
         var itemsSql = $"""
@@ -121,12 +154,24 @@ WHERE (@Level IS NULL OR l.Level = @Level)
       OR CONVERT(NVARCHAR(100), l.MainEntityId) LIKE '%' + @Search + '%'
       OR CONVERT(NVARCHAR(100), l.SessionId) LIKE '%' + @Search + '%'
   )
+  AND (
+      @EntityId IS NULL
+      OR CONVERT(NVARCHAR(100), l.MainEntityId) = @EntityId
+      OR CONVERT(NVARCHAR(100), l.ImpersonatorMainEntityId) = @EntityId
+      OR l.Message LIKE '%' + @EntityId + '%'
+      OR EXISTS (
+          SELECT 1
+          FROM [{resolvedDataset}].[dbo].[LogEntity] le
+          WHERE le.LogId = l.LogId
+            AND CONVERT(NVARCHAR(100), le.EntityId) = @EntityId
+      )
+  )
 ORDER BY l.[Time] DESC, l.LogId DESC
 OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY;
 """;
 
         await using var itemsCommand = new SqlCommand(itemsSql, connection);
-        AddSharedParameters(itemsCommand, normalizedLevel, normalizedCategory, normalizedSearch);
+        AddSharedParameters(itemsCommand, normalizedLevel, normalizedCategory, normalizedSearch, normalizedEntityId);
         itemsCommand.Parameters.AddWithValue("@Skip", normalizedSkip);
         itemsCommand.Parameters.AddWithValue("@Take", normalizedTake);
 
@@ -313,11 +358,12 @@ ORDER BY l.Level ASC;
             levels);
     }
 
-    private static void AddSharedParameters(SqlCommand command, string? level, string? category, string? search)
+    private static void AddSharedParameters(SqlCommand command, string? level, string? category, string? search, string? entityId)
     {
         command.Parameters.AddWithValue("@Level", (object?)level ?? DBNull.Value);
         command.Parameters.AddWithValue("@Category", (object?)category ?? DBNull.Value);
         command.Parameters.AddWithValue("@Search", (object?)search ?? DBNull.Value);
+        command.Parameters.AddWithValue("@EntityId", (object?)entityId ?? DBNull.Value);
     }
 
     private static string? NormalizeFilter(string? value) =>
@@ -360,6 +406,24 @@ SELECT CASE WHEN EXISTS (
         var result = await command.ExecuteScalarAsync(cancellationToken);
 
         return Convert.ToInt32(result, CultureInfo.InvariantCulture) == 1;
+    }
+
+    private static bool IsSafeSqlIdentifier(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        foreach (var ch in value.Trim())
+        {
+            if (!char.IsLetterOrDigit(ch) && ch != '_')
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static async Task<IReadOnlyList<LogChangeDetail>> GetChangesAsync(
