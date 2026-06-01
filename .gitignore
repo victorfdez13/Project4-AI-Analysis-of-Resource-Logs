@@ -422,3 +422,12 @@ database/.cache/
 database/DATASET1/
 database/DATASET2/
 .run/
+
+# Project runtime state
+.runtime-logs/
+*.err.log
+*.out.log
+
+# Python virtual environments and caches
+**/.venv/
+**/.pytest_cache/

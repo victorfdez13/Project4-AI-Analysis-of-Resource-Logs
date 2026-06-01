@@ -9,3 +9,11 @@ users.json
 
 # Local dataset registration list. Seeded from appsettings on first run.
 datasets.json
+
+# Temporary local build outputs
+build_verify/
+temp-build/
+
+# Local restart/runtime logs
+*.err.log
+*.out.log
